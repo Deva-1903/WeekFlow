@@ -10,7 +10,7 @@ The core model now has five distinct lanes:
 - Future
 - Recurring task templates
 
-Imported calendar events are not tasks. Future items are not backlog. Recurring commitments generate calendar pressure; recurring task templates generate real tasks.
+Imported calendar events are not tasks. Future items are not backlog. Recurring commitments generate calendar pressure, recurring task templates generate real tasks.
 
 ## What’s Included
 
