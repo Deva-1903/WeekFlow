@@ -53,6 +53,10 @@ function dayAt(date: Date, hours: number, minutes = 0) {
 }
 
 async function main() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Seed script must not run in production. Set NODE_ENV=development to seed locally.");
+  }
+
   console.log("🌱 Seeding WeekFlow...");
 
   await prisma.dailyBigRock.deleteMany();

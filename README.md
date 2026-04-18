@@ -2,7 +2,7 @@
 
 WeekFlow is a personal execution dashboard for a single power user first.
 
-The core model now has five distinct lanes:
+The core model has five distinct lanes:
 
 - Fixed commitments
 - Active tasks
@@ -10,9 +10,9 @@ The core model now has five distinct lanes:
 - Future
 - Recurring task templates
 
-Imported calendar events are not tasks. Future items are not backlog. Recurring commitments generate calendar pressure, recurring task templates generate real tasks.
+Imported calendar events are not tasks. Future items are not backlog. Recurring commitments generate calendar pressure; recurring task templates generate real tasks.
 
-## What’s Included
+## What's Included
 
 | Area | Highlights |
 | --- | --- |
@@ -46,7 +46,9 @@ Imported calendar events are not tasks. Future items are not backlog. Recurring 
 - Future items are not active commitments.
 - Analytics separates task execution from imported schedule pressure.
 
-## Setup
+---
+
+## Local Development Setup
 
 ### 1. Install dependencies
 
@@ -56,26 +58,24 @@ npm install
 
 ### 2. Configure environment
 
-Copy `.env.example` into both `.env` and `.env.local`, then fill in your Postgres connection details.
+```bash
+cp .env.example .env
+cp .env.example .env.local
+```
 
-Required for the app:
+Both files are needed:
+- `.env` — read by `prisma.config.ts` for migrations and seeding
+- `.env.local` — read by Next.js at runtime
+
+Fill in your local Postgres connection:
 
 ```bash
 DATABASE_URL="postgresql://YOUR_USER@localhost:5432/weekflow"
-NEXTAUTH_SECRET="change-this-in-production"
+NEXTAUTH_SECRET="any-random-string-for-dev"
 NEXTAUTH_URL="http://localhost:3000"
 DEMO_USER_EMAIL="demo@weekflow.app"
 DEMO_USER_PASSWORD="weekflow2024"
 ```
-
-Optional for Google Calendar sync:
-
-```bash
-GOOGLE_CLIENT_ID=""
-GOOGLE_CLIENT_SECRET=""
-```
-
-Google sync is optional. If the Google env vars are missing, the app still runs and Settings shows a graceful disabled state for Calendar Connections.
 
 ### 3. Create the database
 
@@ -115,6 +115,77 @@ Open [http://localhost:3000](http://localhost:3000) and use:
 - Email: `demo@weekflow.app`
 - Password: `weekflow2024`
 
+---
+
+## Production Deployment — Vercel + DigitalOcean
+
+### Overview
+
+| Layer | Service |
+| --- | --- |
+| Frontend + API routes | Vercel |
+| Database | DigitalOcean Managed PostgreSQL |
+
+### Step 1 — Provision DigitalOcean Managed PostgreSQL
+
+1. Create a **Managed PostgreSQL** cluster in the DO console.
+2. Add a new database named `weekflow` inside the cluster.
+3. Under **Connection Details**, copy the **Connection string**.
+4. Append `?sslmode=require` to the connection string — DO requires SSL.
+
+```
+postgresql://doadmin:PASS@host.db.ondigitalocean.com:25060/weekflow?sslmode=require
+```
+
+**Port note:** Use port `25060` (direct TCP), not `6543` (pgBouncer). Prisma's `migrate deploy` needs a direct connection. Runtime queries work fine on pgBouncer if you need pooling later.
+
+5. Under **Trusted Sources**, add Vercel's outbound IPs, or allow all sources initially and lock down after confirming deployment works.
+
+### Step 2 — Run migrations against the production database
+
+From your local machine with the production URL set:
+
+```bash
+DATABASE_URL="postgresql://..." npm run db:deploy
+```
+
+`db:deploy` runs `prisma migrate deploy` — applies only committed migration files without auto-generating new ones. Never run `db:migrate` (migrate dev) against production.
+
+### Step 3 — Deploy to Vercel
+
+1. Push the repo to GitHub.
+2. Import the project in the Vercel dashboard.
+3. Set these **Environment Variables** in Vercel → Settings → Environment Variables:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | Your DO connection string (with `?sslmode=require`) |
+| `NEXTAUTH_SECRET` | Output of `openssl rand -base64 32` |
+| `NEXTAUTH_URL` | `https://your-app.vercel.app` (no trailing slash) |
+| `DEMO_USER_EMAIL` | `demo@weekflow.app` |
+| `DEMO_USER_PASSWORD` | Your chosen password |
+| `GOOGLE_CLIENT_ID` | (optional) |
+| `GOOGLE_CLIENT_SECRET` | (optional) |
+
+4. Deploy. Vercel runs `npm install` → `postinstall` (runs `prisma generate`) → `next build` automatically.
+
+### Step 4 — Verify
+
+```
+GET https://your-app.vercel.app/api/health
+```
+
+Returns `{ "status": "ok", "db": "connected" }` when healthy. If `db` is `"unreachable"`, check `DATABASE_URL` and trusted sources on your DO cluster.
+
+### Re-deploying after schema changes
+
+1. Create a migration locally: `npm run db:migrate`
+2. Commit the generated files in `prisma/migrations/`
+3. Run against production: `DATABASE_URL="..." npm run db:deploy`
+4. Push + redeploy on Vercel.
+
+---
+
 ## Google Calendar Integration
 
 WeekFlow supports optional Google Calendar import for fixed commitments.
@@ -122,23 +193,39 @@ WeekFlow supports optional Google Calendar import for fixed commitments.
 ### Required Google setup
 
 1. Create OAuth credentials in Google Cloud.
-2. Add these authorized redirect URIs:
+2. Add authorized redirect URIs:
 
 ```text
-http://localhost:3000/api/calendar/google/callback
+http://localhost:3000/api/calendar/google/callback        (dev)
+https://your-app.vercel.app/api/calendar/google/callback  (prod)
 ```
 
-3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in both `.env` and `.env.local`.
+3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in Vercel env vars.
 
 ### What the sync does
 
-- connects a Google account from Settings
-- fetches available calendars
-- stores calendar selection and capacity flags locally
-- imports events as `ExternalEvent`
-- expands basic recurring Google events via Google’s `singleEvents=true` instances
-- keeps imported events visually distinct from manual work blocks
-- uses selected calendars in weekly capacity and conflict detection
+- Connects a Google account from Settings
+- Fetches available calendars
+- Stores calendar selection and capacity flags locally
+- Imports events as `ExternalEvent`
+- Expands basic recurring Google events via Google's `singleEvents=true` instances
+- Keeps imported events visually distinct from manual work blocks
+- Uses selected calendars in weekly capacity and conflict detection
+
+---
+
+## Future: Background Worker (DigitalOcean App Platform)
+
+Recurring task generation and calendar sync currently run on-demand. To schedule them:
+
+1. Add a **Worker** component to a DO App Platform spec (or use DO Functions with a cron trigger).
+2. The worker calls `generateRecurringTasksForUser` and calendar sync for all users.
+3. Set the same `DATABASE_URL` on the worker.
+4. Schedule via cron (e.g., `0 * * * *` for hourly).
+
+This is optional — the app is fully usable without it.
+
+---
 
 ## New Data Model
 
@@ -176,6 +263,7 @@ app/
   api/
     auth/
     calendar/google/
+    health/
 actions/
   calendar-sync.ts
   future.ts
@@ -195,6 +283,7 @@ lib/
   commitments.ts
   metrics.ts
   planning.ts
+  prisma.ts
   recurring-tasks.ts
 ```
 
@@ -205,14 +294,16 @@ lib/
 | `npm run dev` | Start the dev server |
 | `npm run build` | Production build |
 | `npm run lint` | Run ESLint |
-| `npm run db:migrate` | Run Prisma migrate dev |
-| `npm run db:seed` | Seed demo data |
-| `npm run db:reset` | Reset the database and reseed |
+| `npm run db:migrate` | Run Prisma migrate dev (local only) |
+| `npm run db:deploy` | Apply migrations to production database |
+| `npm run db:seed` | Seed demo data (blocked in production) |
+| `npm run db:reset` | Reset the database and reseed (dev only) |
 | `npm run db:studio` | Open Prisma Studio |
 
 ## Notes
 
-- The app can run without Google credentials.
+- The app runs without Google credentials — Settings shows a graceful disabled state for Calendar Connections.
 - Recurring commitments are generated on the fly for the calendar and capacity engine.
 - Recurring task templates generate concrete tasks and avoid duplicates via a per-template period key.
 - Future-item review dates are reminders, not hard deadlines.
+- `postinstall` runs `prisma generate` automatically so Vercel builds always have a fresh Prisma client.
