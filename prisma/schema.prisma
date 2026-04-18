@@ -1,0 +1,517 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum TaskStatus {
+  BACKLOG
+  THIS_WEEK
+  TODAY
+  IN_PROGRESS
+  DONE
+  SKIPPED
+  ARCHIVED
+}
+
+enum TaskArea {
+  COURSEWORK
+  RESEARCH
+  INTERNSHIP_PREP
+  PERSONAL
+  HEALTH
+  ADMIN
+  SOCIAL
+  OTHER
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum Urgency {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TimeBlockType {
+  DEEP_WORK
+  ADMIN
+  CLASS
+  EXERCISE
+  PERSONAL
+  SOCIAL
+  REST
+  OTHER
+}
+
+enum TimeBlockStatus {
+  PLANNED
+  COMPLETED
+  MISSED
+}
+
+enum ActivityType {
+  GYM
+  WALKING
+  SPORTS
+  RUN
+  CYCLING
+  YOGA
+  OTHER
+}
+
+enum EventType {
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_COMPLETED
+  TASK_RESCHEDULED
+  TASK_ARCHIVED
+  TASK_MOVED
+  BLOCK_CREATED
+  BLOCK_COMPLETED
+  BLOCK_MISSED
+  HEALTH_LOGGED
+  WEEKLY_PLAN_SAVED
+  DAILY_PLAN_SAVED
+  CALENDAR_SYNCED
+  SOMEDAY_PROMOTED
+  SOMEDAY_REVIEWED
+  RECURRING_TASK_GENERATED
+}
+
+enum CalendarProvider {
+  GOOGLE
+}
+
+enum EventSourceType {
+  INTERNAL
+  EXTERNAL_SYNC
+  RECURRING_COMMITMENT
+}
+
+enum SomedayStatus {
+  SOMEDAY
+  ACTIVE
+  DONE
+  DROPPED
+  ARCHIVED
+}
+
+enum TaskSourceType {
+  MANUAL
+  RECURRING
+  PROMOTED_FROM_SOMEDAY
+}
+
+enum RecurringFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+enum CommitmentType {
+  CLASS
+  WORK
+  GYM
+  MEETING
+  PERSONAL
+  OTHER
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  weeklyCapacityMinutes Int    @default(2400)
+  workingDaysPerWeek    Int    @default(5)
+  bigRockLimit          Int    @default(3)
+  workdayStartTime      String @default("09:00")
+  workdayEndTime        String @default("17:00")
+
+  tasks                        Task[]
+  weeklyPlans                  WeeklyPlan[]
+  dailyPlans                   DailyPlan[]
+  timeBlocks                   TimeBlock[]
+  healthLogs                   HealthLog[]
+  events                       ActivityEvent[]
+  sessions                     Session[]
+  accounts                     Account[]
+  calendarConnections          CalendarConnection[]
+  externalCalendars            ExternalCalendar[]
+  externalEvents               ExternalEvent[]
+  recurringCommitmentTemplates RecurringCommitmentTemplate[]
+  recurringTaskTemplates       RecurringTaskTemplate[]
+  somedayItems                 SomedayItem[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Task {
+  id                        String         @id @default(cuid())
+  userId                    String
+  title                     String
+  description               String?        @db.Text
+  area                      TaskArea       @default(OTHER)
+  status                    TaskStatus     @default(BACKLOG)
+  priority                  Priority       @default(MEDIUM)
+  urgency                   Urgency        @default(MEDIUM)
+  estimatedMinutes          Int?
+  actualMinutes             Int?
+  dueDate                   DateTime?
+  startDate                 DateTime?
+  reviewDate                DateTime?
+  completedAt               DateTime?
+  tags                      String[]       @default([])
+  isRecurring               Boolean        @default(false)
+  sourceType                TaskSourceType @default(MANUAL)
+  originRecurringTemplateId String?
+  promotedFromSomedayId     String?        @unique
+  recurrencePeriodKey       String?
+  notes                     String?        @db.Text
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+
+  user                    User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timeBlocks              TimeBlock[]
+  bigRocks                DailyBigRock[]
+  weeklyTasks             WeeklyPlanTask[]
+  originRecurringTemplate RecurringTaskTemplate? @relation("GeneratedTasks", fields: [originRecurringTemplateId], references: [id], onDelete: SetNull)
+  promotedFromSomeday     SomedayItem?           @relation("SomedaySource", fields: [promotedFromSomedayId], references: [id], onDelete: SetNull)
+
+  @@unique([originRecurringTemplateId, recurrencePeriodKey])
+  @@index([userId, status])
+  @@index([userId, dueDate])
+  @@index([userId, reviewDate])
+  @@index([userId, area])
+  @@index([userId, sourceType])
+  @@map("tasks")
+}
+
+model WeeklyPlan {
+  id                     String   @id @default(cuid())
+  userId                 String
+  weekStart              DateTime
+  availableMinutes       Int      @default(2400)
+  fixedCommitmentMinutes Int      @default(0)
+  remainingFocusMinutes  Int      @default(0)
+  committedMinutes       Int      @default(0)
+  weeklyGoals            String?  @db.Text
+  reflectionWentWell     String?  @db.Text
+  reflectionSlipped      String?  @db.Text
+  reflectionChange       String?  @db.Text
+  notes                  String?  @db.Text
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weeklyPlanTasks WeeklyPlanTask[]
+
+  @@unique([userId, weekStart])
+  @@index([userId, weekStart])
+  @@map("weekly_plans")
+}
+
+model WeeklyPlanTask {
+  id           String   @id @default(cuid())
+  weeklyPlanId String
+  taskId       String
+  addedAt      DateTime @default(now())
+
+  weeklyPlan WeeklyPlan @relation(fields: [weeklyPlanId], references: [id], onDelete: Cascade)
+  task       Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([weeklyPlanId, taskId])
+  @@map("weekly_plan_tasks")
+}
+
+model DailyPlan {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bigRocks DailyBigRock[]
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("daily_plans")
+}
+
+model DailyBigRock {
+  id          String    @id @default(cuid())
+  dailyPlanId String
+  taskId      String
+  order       Int       @default(0)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  dailyPlan DailyPlan @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyPlanId, taskId])
+  @@map("daily_big_rocks")
+}
+
+model TimeBlock {
+  id              String          @id @default(cuid())
+  userId          String
+  taskId          String?
+  title           String
+  blockType       TimeBlockType   @default(DEEP_WORK)
+  sourceType      EventSourceType @default(INTERNAL)
+  date            DateTime
+  startTime       String
+  endTime         String
+  durationMinutes Int
+  status          TimeBlockStatus @default(PLANNED)
+  notes           String?         @db.Text
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([userId, sourceType])
+  @@map("time_blocks")
+}
+
+model HealthLog {
+  id                       String        @id @default(cuid())
+  userId                   String
+  date                     DateTime
+  smokedToday              Boolean       @default(false)
+  cigaretteCount           Int?
+  drankAlcoholToday        Boolean       @default(false)
+  alcoholCount             Int?
+  didPhysicalActivityToday Boolean       @default(false)
+  activityType             ActivityType?
+  activityDurationMinutes  Int?
+  notes                    String?       @db.Text
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("health_logs")
+}
+
+model ActivityEvent {
+  id         String    @id @default(cuid())
+  userId     String
+  type       EventType
+  entityId   String?
+  entityType String?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("activity_events")
+}
+
+model CalendarConnection {
+  id                String           @id @default(cuid())
+  userId            String
+  provider          CalendarProvider
+  providerAccountId String
+  accountEmail      String?
+  displayName       String?
+  accessToken       String?          @db.Text
+  refreshToken      String?          @db.Text
+  tokenExpiry       DateTime?
+  lastSyncedAt      DateTime?
+  syncError         String?          @db.Text
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  externalCalendars ExternalCalendar[]
+
+  @@unique([userId, provider, providerAccountId])
+  @@index([userId, provider])
+  @@map("calendar_connections")
+}
+
+model ExternalCalendar {
+  id                 String    @id @default(cuid())
+  userId             String
+  connectionId       String
+  providerCalendarId String
+  name               String
+  color              String?
+  isSelected         Boolean   @default(true)
+  affectsCapacity    Boolean   @default(true)
+  lastSyncedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection CalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  events     ExternalEvent[]
+
+  @@unique([connectionId, providerCalendarId])
+  @@index([userId, isSelected])
+  @@map("external_calendars")
+}
+
+model ExternalEvent {
+  id                  String          @id @default(cuid())
+  userId              String
+  calendarId          String
+  providerEventId     String
+  title               String
+  description         String?         @db.Text
+  location            String?         @db.Text
+  startTime           DateTime
+  endTime             DateTime
+  isAllDay            Boolean         @default(false)
+  isRecurringInstance Boolean         @default(false)
+  recurrenceRuleRaw   String?         @db.Text
+  status              String          @default("confirmed")
+  sourceType          EventSourceType @default(EXTERNAL_SYNC)
+  affectsCapacity     Boolean         @default(true)
+  lastSyncedAt        DateTime
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendar ExternalCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, providerEventId])
+  @@index([userId, startTime])
+  @@index([userId, endTime])
+  @@index([userId, sourceType])
+  @@map("external_events")
+}
+
+model RecurringCommitmentTemplate {
+  id              String          @id @default(cuid())
+  userId          String
+  title           String
+  type            CommitmentType  @default(OTHER)
+  sourceType      EventSourceType @default(RECURRING_COMMITMENT)
+  daysOfWeek      Int[]           @default([])
+  startTime       String
+  endTime         String
+  startDate       DateTime?
+  endDate         DateTime?
+  affectsCapacity Boolean         @default(true)
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@map("recurring_commitment_templates")
+}
+
+model RecurringTaskTemplate {
+  id               String             @id @default(cuid())
+  userId           String
+  title            String
+  description      String?            @db.Text
+  area             TaskArea           @default(OTHER)
+  priority         Priority           @default(MEDIUM)
+  estimatedMinutes Int?
+  recurrenceType   RecurringFrequency @default(WEEKLY)
+  recurrenceConfig Json
+  defaultStatus    TaskStatus         @default(BACKLOG)
+  isActive         Boolean            @default(true)
+  lastGeneratedAt  DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  user           User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generatedTasks Task[] @relation("GeneratedTasks")
+
+  @@index([userId, isActive])
+  @@map("recurring_task_templates")
+}
+
+model SomedayItem {
+  id              String        @id @default(cuid())
+  userId          String
+  title           String
+  description     String?       @db.Text
+  category        TaskArea      @default(OTHER)
+  roughEffort     String?
+  targetTimeframe String?
+  reviewDate      DateTime?
+  isImportant     Boolean       @default(false)
+  status          SomedayStatus @default(SOMEDAY)
+  promotedAt      DateTime?
+  convertedTaskId String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user          User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generatedTask Task? @relation("SomedaySource")
+
+  @@index([userId, status])
+  @@index([userId, reviewDate])
+  @@map("someday_items")
+}
