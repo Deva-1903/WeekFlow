@@ -1,6 +1,8 @@
 import { prisma } from "./prisma";
 import { getWeekStart, getWeekEnd, getDaysBack, getWeeksBack } from "./utils";
-import { startOfDay, endOfDay, subDays, isWithinInterval } from "date-fns";
+import { subDays, isWithinInterval } from "date-fns";
+import { todayTZ, startOfDayTZ, endOfDayTZ, toLocalDateKey, APP_TIMEZONE } from "./timezone";
+import { toZonedTime } from "date-fns-tz";
 import {
   getCalendarConflictCount,
   getFixedCommitmentsForRange,
@@ -201,7 +203,7 @@ export async function getDailyCompletionData(userId: string, daysBack = 7) {
 
   return Promise.all(
     days.map(async (day) => {
-      const dayEnd = endOfDay(day);
+      const dayEnd = endOfDayTZ(day);
       const count = await prisma.task.count({
         where: {
           userId,
@@ -244,7 +246,7 @@ export async function getStreaks(userId: string) {
     take: 90,
   });
 
-  const today = startOfDay(new Date());
+  const today = todayTZ();
 
   function countStreak(
     condition: (log: (typeof logs)[0]) => boolean
@@ -252,10 +254,8 @@ export async function getStreaks(userId: string) {
     let streak = 0;
 
     for (let i = 0; i < 90; i++) {
-      const dateStr = startOfDay(subDays(today, i)).toISOString().split("T")[0];
-      const log = logs.find(
-        (l) => l.date.toISOString().split("T")[0] === dateStr
-      );
+      const dateStr = toLocalDateKey(startOfDayTZ(subDays(today, i)));
+      const log = logs.find((l) => toLocalDateKey(l.date) === dateStr);
 
       if (log && condition(log)) {
         streak++;
@@ -295,7 +295,8 @@ export async function getInsightCards(userId: string) {
   const dayCountMap: Record<number, number> = {};
   completedTasks.forEach((t) => {
     if (t.completedAt) {
-      const day = t.completedAt.getDay();
+      // Use day-of-week in user's timezone, not UTC
+      const day = toZonedTime(t.completedAt, APP_TIMEZONE).getDay();
       dayCountMap[day] = (dayCountMap[day] ?? 0) + 1;
     }
   });
@@ -314,14 +315,14 @@ export async function getInsightCards(userId: string) {
   const activityDays = new Set(
     recentLogs
       .filter((l) => l.didPhysicalActivityToday)
-      .map((l) => l.date.toISOString().split("T")[0])
+      .map((l) => toLocalDateKey(l.date))
   );
 
   let completedOnActivity = 0;
   let completedOnNonActivity = 0;
   completedTasks.forEach((t) => {
     if (!t.completedAt) return;
-    const dateStr = startOfDay(t.completedAt).toISOString().split("T")[0];
+    const dateStr = toLocalDateKey(t.completedAt);
     if (activityDays.has(dateStr)) completedOnActivity++;
     else completedOnNonActivity++;
   });
@@ -366,21 +367,21 @@ export async function getActivityHeatmapData(userId: string, daysBack = 90) {
 
   taskEvents.forEach((t) => {
     if (!t.completedAt) return;
-    const key = startOfDay(t.completedAt).toISOString().split("T")[0];
+    const key = toLocalDateKey(t.completedAt);
     if (!heatmap[key])
       heatmap[key] = { tasksCompleted: 0, planned: false, active: false };
     heatmap[key].tasksCompleted++;
   });
 
   healthLogs.forEach((l) => {
-    const key = l.date.toISOString().split("T")[0];
+    const key = toLocalDateKey(l.date);
     if (!heatmap[key])
       heatmap[key] = { tasksCompleted: 0, planned: false, active: false };
     heatmap[key].active = l.didPhysicalActivityToday;
   });
 
   dailyPlans.forEach((p) => {
-    const key = p.date.toISOString().split("T")[0];
+    const key = toLocalDateKey(p.date);
     if (!heatmap[key])
       heatmap[key] = { tasksCompleted: 0, planned: false, active: false };
     heatmap[key].planned = true;

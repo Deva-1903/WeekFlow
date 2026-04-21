@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { TaskStatus, TaskArea, Priority, Urgency } from "@prisma/client";
+import { parseLocalDate } from "@/lib/timezone";
 
 const taskSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -35,9 +36,9 @@ export async function createTask(data: z.input<typeof taskSchema>) {
     data: {
       userId,
       ...parsed,
-      dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
-      startDate: parsed.startDate ? new Date(parsed.startDate) : null,
-      reviewDate: parsed.reviewDate ? new Date(parsed.reviewDate) : null,
+      dueDate: parsed.dueDate ? parseLocalDate(parsed.dueDate) : null,
+      startDate: parsed.startDate ? parseLocalDate(parsed.startDate) : null,
+      reviewDate: parsed.reviewDate ? parseLocalDate(parsed.reviewDate) : null,
     },
   });
 
@@ -75,9 +76,9 @@ export async function updateTask(
     where: { id },
     data: {
       ...data,
-      dueDate: data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : undefined,
-      startDate: data.startDate !== undefined ? (data.startDate ? new Date(data.startDate) : null) : undefined,
-      reviewDate: data.reviewDate !== undefined ? (data.reviewDate ? new Date(data.reviewDate) : null) : undefined,
+      dueDate: data.dueDate !== undefined ? (data.dueDate ? parseLocalDate(data.dueDate) : null) : undefined,
+      startDate: data.startDate !== undefined ? (data.startDate ? parseLocalDate(data.startDate) : null) : undefined,
+      reviewDate: data.reviewDate !== undefined ? (data.reviewDate ? parseLocalDate(data.reviewDate) : null) : undefined,
       completedAt: isNowCompleted && !wasCompleted ? new Date() : wasCompleted && !isNowCompleted ? null : undefined,
     },
   });

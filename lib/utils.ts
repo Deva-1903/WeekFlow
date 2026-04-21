@@ -1,46 +1,47 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { format, parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import {
-  startOfWeek,
-  endOfWeek,
-  startOfDay,
-  format,
-  addDays,
-  subDays,
-  isToday,
-  isBefore,
-  parseISO,
-} from "date-fns";
+  APP_TIMEZONE,
+  startOfWeekTZ,
+  endOfWeekTZ,
+  startOfDayTZ,
+  todayTZ,
+  isOverdueTZ,
+  getWeeksBackTZ,
+  getDaysBackTZ,
+  formatWeekRangeTZ,
+} from "./timezone";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 export function getWeekStart(date: Date = new Date()): Date {
-  return startOfWeek(date, { weekStartsOn: 1 }); // Monday
+  return startOfWeekTZ(date);
 }
 
 export function getWeekEnd(date: Date = new Date()): Date {
-  return endOfWeek(date, { weekStartsOn: 1 });
+  return endOfWeekTZ(date);
 }
 
 export function toDateOnly(date: Date): Date {
-  return startOfDay(date);
+  return startOfDayTZ(date);
 }
 
 export function formatDate(date: Date | string): string {
   const d = typeof date === "string" ? parseISO(date) : date;
-  return format(d, "MMM d, yyyy");
+  return formatInTimeZone(d, APP_TIMEZONE, "MMM d, yyyy");
 }
 
 export function formatDateShort(date: Date | string): string {
   const d = typeof date === "string" ? parseISO(date) : date;
-  return format(d, "MMM d");
+  return formatInTimeZone(d, APP_TIMEZONE, "MMM d");
 }
 
 export function formatWeekRange(weekStart: Date): string {
-  const weekEnd = getWeekEnd(weekStart);
-  return `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`;
+  return formatWeekRangeTZ(weekStart);
 }
 
 export function minutesToHours(minutes: number): string {
@@ -55,24 +56,15 @@ export function minutesToDecimalHours(minutes: number): number {
 }
 
 export function getWeeksBack(n: number): Date[] {
-  const weeks: Date[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    weeks.push(getWeekStart(subDays(new Date(), i * 7)));
-  }
-  return weeks;
+  return getWeeksBackTZ(n);
 }
 
 export function getDaysBack(n: number): Date[] {
-  const days: Date[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    days.push(toDateOnly(subDays(new Date(), i)));
-  }
-  return days;
+  return getDaysBackTZ(n);
 }
 
 export function isOverdue(dueDate: Date | null | undefined): boolean {
-  if (!dueDate) return false;
-  return isBefore(dueDate, toDateOnly(new Date())) && !isToday(dueDate);
+  return isOverdueTZ(dueDate);
 }
 
 export const AREA_LABELS: Record<string, string> = {

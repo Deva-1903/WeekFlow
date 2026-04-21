@@ -15,7 +15,8 @@ import {
   CheckCircle2, AlertCircle, Clock, TrendingUp,
   RotateCcw, Cigarette, Wine, Dumbbell, Target, Calendar, CalendarClock
 } from "lucide-react";
-import { addDays, startOfDay, endOfDay, subDays } from "date-fns";
+import { addDays, subDays } from "date-fns";
+import { todayTZ, endOfDayTZ } from "@/lib/timezone";
 import Link from "next/link";
 
 export default async function DashboardPage() {
@@ -24,7 +25,7 @@ export default async function DashboardPage() {
 
   await generateRecurringTasksForUser(userId);
 
-  const today = startOfDay(new Date());
+  const today = todayTZ();
   const weekStart = getWeekStart();
   const weekEnd = getWeekEnd();
 
@@ -46,7 +47,7 @@ export default async function DashboardPage() {
     prisma.task.findMany({
       where: {
         userId,
-        dueDate: { gte: today, lte: endOfDay(today) },
+        dueDate: { gte: today, lte: endOfDayTZ(today) },
         status: { notIn: ["DONE", "ARCHIVED", "SKIPPED"] },
       },
       orderBy: { priority: "desc" },
@@ -87,8 +88,8 @@ export default async function DashboardPage() {
       orderBy: { dueDate: "asc" },
       take: 5,
     }),
-    getFixedCommitmentsForRange(userId, today, endOfDay(today)),
-    getFixedCommitmentsForRange(userId, today, endOfDay(addDays(today, 7))),
+    getFixedCommitmentsForRange(userId, today, endOfDayTZ(today)),
+    getFixedCommitmentsForRange(userId, today, endOfDayTZ(addDays(today, 7))),
     prisma.somedayItem.findMany({
       where: {
         userId,

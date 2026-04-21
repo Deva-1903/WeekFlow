@@ -1,6 +1,7 @@
 "use server";
 
 import { SomedayStatus, TaskStatus, TaskArea } from "@prisma/client";
+import { parseLocalDate } from "@/lib/timezone";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -37,7 +38,7 @@ export async function createSomedayItem(data: z.input<typeof somedaySchema>) {
       category: parsed.category,
       roughEffort: parsed.roughEffort,
       targetTimeframe: parsed.targetTimeframe,
-      reviewDate: parsed.reviewDate ? new Date(parsed.reviewDate) : null,
+      reviewDate: parsed.reviewDate ? parseLocalDate(parsed.reviewDate) : null,
       isImportant: parsed.isImportant,
       status: parsed.status,
     },

@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { startOfDay } from "date-fns";
+import { todayTZ } from "@/lib/timezone";
 import { DailyPlannerClient } from "@/components/daily-planner/daily-planner-client";
 import { generateRecurringTasksForUser } from "@/lib/recurring-tasks";
 
@@ -10,7 +10,7 @@ export default async function DailyPlannerPage() {
 
   await generateRecurringTasksForUser(userId);
 
-  const today = startOfDay(new Date());
+  const today = todayTZ();
 
   const [dailyPlan, thisWeekTasks, user] = await Promise.all([
     prisma.dailyPlan.findUnique({
