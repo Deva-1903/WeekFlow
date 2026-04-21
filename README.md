@@ -64,18 +64,21 @@ cp .env.example .env.local
 ```
 
 Both files are needed:
+
 - `.env` — read by `prisma.config.ts` for migrations and seeding
 - `.env.local` — read by Next.js at runtime
 
-Fill in your local Postgres connection:
+For local dev, you only need `DATABASE_URL`:
 
-```bash
+```
 DATABASE_URL="postgresql://YOUR_USER@localhost:5432/weekflow"
-NEXTAUTH_SECRET="any-random-string-for-dev"
+NEXTAUTH_SECRET="any-local-dev-string"
 NEXTAUTH_URL="http://localhost:3000"
 DEMO_USER_EMAIL="demo@weekflow.app"
 DEMO_USER_PASSWORD="weekflow2024"
 ```
+
+Leave `DIRECT_URL` blank locally — `prisma.config.ts` falls back to `DATABASE_URL` when `DIRECT_URL` is unset.
 
 ### 3. Create the database
 
@@ -95,15 +98,6 @@ npm run db:migrate
 npm run db:seed
 ```
 
-The seed includes:
-
-- realistic manual tasks
-- recurring commitment templates
-- recurring task templates plus generated tasks
-- future items with review dates
-- mocked external Google calendar data for analytics and calendar rendering
-- health logs, weekly plans, daily plans, and recent activity
-
 ### 6. Start the app
 
 ```bash
@@ -117,49 +111,54 @@ Open [http://localhost:3000](http://localhost:3000) and use:
 
 ---
 
-## Production Deployment — Vercel + DigitalOcean
+## Production Deployment — Vercel + Neon
 
-### Overview
+### Step 1 — Create a Neon project
 
-| Layer | Service |
-| --- | --- |
-| Frontend + API routes | Vercel |
-| Database | DigitalOcean Managed PostgreSQL |
+1. Go to [neon.tech](https://neon.tech) and create a project.
+2. Choose a region close to your Vercel deployment region.
+3. Neon creates a default `main` branch with a database named `neondb` (you can rename it or use as-is).
 
-### Step 1 — Provision DigitalOcean Managed PostgreSQL
+### Step 2 — Get your connection strings
 
-1. Create a **Managed PostgreSQL** cluster in the DO console.
-2. Add a new database named `weekflow` inside the cluster.
-3. Under **Connection Details**, copy the **Connection string**.
-4. Append `?sslmode=require` to the connection string — DO requires SSL.
+In the Neon console, open your project → **Connection Details**.
 
-```
-postgresql://doadmin:PASS@host.db.ondigitalocean.com:25060/weekflow?sslmode=require
-```
+You need two strings:
 
-**Port note:** Use port `25060` (direct TCP), not `6543` (pgBouncer). Prisma's `migrate deploy` needs a direct connection. Runtime queries work fine on pgBouncer if you need pooling later.
+**Pooled connection (DATABASE_URL)**
+- Select "Pooled connection" — the host contains `-pooler` in the name.
+- Example: `postgresql://user:pass@ep-xxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require`
+- This is used for all application queries at runtime.
 
-5. Under **Trusted Sources**, add Vercel's outbound IPs, or allow all sources initially and lock down after confirming deployment works.
+**Direct connection (DIRECT_URL)**
+- Select "Direct connection" — the host does NOT contain `-pooler`.
+- Example: `postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require`
+- This is used only for Prisma migrations (`prisma migrate deploy`).
 
-### Step 2 — Run migrations against the production database
+**Why two URLs?** Neon's pgBouncer runs in transaction mode. Prisma migrations use advisory locks which require a persistent session. The direct URL bypasses pgBouncer and gives Prisma a real session connection.
 
-From your local machine with the production URL set:
+### Step 3 — Run migrations against Neon
+
+From your local machine with both env vars set:
 
 ```bash
-DATABASE_URL="postgresql://..." npm run db:deploy
+DIRECT_URL="postgresql://..." DATABASE_URL="postgresql://..." npm run db:deploy
 ```
 
-`db:deploy` runs `prisma migrate deploy` — applies only committed migration files without auto-generating new ones. Never run `db:migrate` (migrate dev) against production.
+Or add them temporarily to your `.env`, run `npm run db:deploy`, then remove.
 
-### Step 3 — Deploy to Vercel
+`db:deploy` runs `prisma migrate deploy` — applies only committed migration files without generating new ones. Never run `db:migrate` (migrate dev) against a production database.
+
+### Step 4 — Deploy to Vercel
 
 1. Push the repo to GitHub.
 2. Import the project in the Vercel dashboard.
-3. Set these **Environment Variables** in Vercel → Settings → Environment Variables:
+3. Set these **Environment Variables** in Vercel → Project → Settings → Environment Variables:
 
 | Variable | Value |
 | --- | --- |
-| `DATABASE_URL` | Your DO connection string (with `?sslmode=require`) |
+| `DATABASE_URL` | Neon pooled connection string |
+| `DIRECT_URL` | Neon direct connection string |
 | `NEXTAUTH_SECRET` | Output of `openssl rand -base64 32` |
 | `NEXTAUTH_URL` | `https://your-app.vercel.app` (no trailing slash) |
 | `DEMO_USER_EMAIL` | `demo@weekflow.app` |
@@ -167,22 +166,46 @@ DATABASE_URL="postgresql://..." npm run db:deploy
 | `GOOGLE_CLIENT_ID` | (optional) |
 | `GOOGLE_CLIENT_SECRET` | (optional) |
 
-4. Deploy. Vercel runs `npm install` → `postinstall` (runs `prisma generate`) → `next build` automatically.
+4. Deploy. Vercel runs `npm install` → `postinstall` (`prisma generate`) → `next build` automatically.
 
-### Step 4 — Verify
+**Important:** Changing env vars in Vercel does not take effect until you redeploy. Trigger a manual redeploy after updating any env var.
+
+### Step 5 — Verify
 
 ```
 GET https://your-app.vercel.app/api/health
 ```
 
-Returns `{ "status": "ok", "db": "connected" }` when healthy. If `db` is `"unreachable"`, check `DATABASE_URL` and trusted sources on your DO cluster.
+Should return:
 
-### Re-deploying after schema changes
+```json
+{ "status": "ok", "db": "connected" }
+```
+
+If `db` is `"unreachable"`, the most common causes are:
+
+- `DATABASE_URL` is missing or has a typo in Vercel env vars
+- You used the direct URL instead of the pooled URL for `DATABASE_URL`
+- Migrations haven't been applied yet (`npm run db:deploy`)
+
+### Step 6 — Re-deploying after schema changes
 
 1. Create a migration locally: `npm run db:migrate`
 2. Commit the generated files in `prisma/migrations/`
-3. Run against production: `DATABASE_URL="..." npm run db:deploy`
+3. Run against Neon: `DIRECT_URL="..." npm run db:deploy`
 4. Push + redeploy on Vercel.
+
+---
+
+## Prisma v7 Architecture Note
+
+This app uses **Prisma v7 with driver adapters** (`@prisma/adapter-pg`). This is why:
+
+- `prisma/schema.prisma` has `datasource db { provider = "postgresql" }` with no `url` field — Prisma v7 requires the URL to live in `prisma.config.ts` when using driver adapters.
+- `prisma.config.ts` controls CLI connections (migrations, studio). It uses `DIRECT_URL` for migrations.
+- `lib/prisma.ts` controls the runtime client. It uses `DATABASE_URL` (pooled) via `pg.Pool`.
+
+If you ever see a Prisma error about "url in datasource" (P1012), do not add `url` back to `schema.prisma` — that breaks the v7 driver adapter setup.
 
 ---
 
@@ -214,16 +237,9 @@ https://your-app.vercel.app/api/calendar/google/callback  (prod)
 
 ---
 
-## Future: Background Worker (DigitalOcean App Platform)
+## Future: Background Worker
 
-Recurring task generation and calendar sync currently run on-demand. To schedule them:
-
-1. Add a **Worker** component to a DO App Platform spec (or use DO Functions with a cron trigger).
-2. The worker calls `generateRecurringTasksForUser` and calendar sync for all users.
-3. Set the same `DATABASE_URL` on the worker.
-4. Schedule via cron (e.g., `0 * * * *` for hourly).
-
-This is optional — the app is fully usable without it.
+Recurring task generation and calendar sync currently run on-demand. To schedule them, add a worker that calls `generateRecurringTasksForUser` and calendar sync for all users on a cron schedule. The worker needs only `DATABASE_URL` to connect to Neon.
 
 ---
 
@@ -293,17 +309,19 @@ lib/
 | --- | --- |
 | `npm run dev` | Start the dev server |
 | `npm run build` | Production build |
+| `npm run start` | Start production server |
 | `npm run lint` | Run ESLint |
-| `npm run db:migrate` | Run Prisma migrate dev (local only) |
-| `npm run db:deploy` | Apply migrations to production database |
-| `npm run db:seed` | Seed demo data (blocked in production) |
-| `npm run db:reset` | Reset the database and reseed (dev only) |
+| `npm run db:migrate` | Run Prisma migrate dev — local only |
+| `npm run db:deploy` | Apply migrations to production (use with DIRECT_URL) |
+| `npm run db:seed` | Seed demo data — blocked in production |
+| `npm run db:reset` | Reset database and reseed — dev only, destructive |
 | `npm run db:studio` | Open Prisma Studio |
 
 ## Notes
 
-- The app runs without Google credentials — Settings shows a graceful disabled state for Calendar Connections.
+- The app runs without Google credentials — Settings shows a graceful disabled state.
 - Recurring commitments are generated on the fly for the calendar and capacity engine.
 - Recurring task templates generate concrete tasks and avoid duplicates via a per-template period key.
 - Future-item review dates are reminders, not hard deadlines.
-- `postinstall` runs `prisma generate` automatically so Vercel builds always have a fresh Prisma client.
+- `postinstall` runs `prisma generate` so Vercel builds always have a fresh Prisma client.
+- The seed script refuses to run when `NODE_ENV=production`.
