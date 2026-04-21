@@ -86,6 +86,25 @@ export function TasksClient({ initialTasks }: Props) {
         break;
     }
 
+    // Sort by date depending on section
+    if (preset === "done") {
+      result = [...result].sort((a, b) => {
+        const at = a.completedAt?.getTime() ?? 0;
+        const bt = b.completedAt?.getTime() ?? 0;
+        return bt - at; // most recently completed first
+      });
+    } else {
+      result = [...result].sort((a, b) => {
+        const aDone = a.status === "DONE" || a.status === "SKIPPED";
+        const bDone = b.status === "DONE" || b.status === "SKIPPED";
+        if (aDone !== bDone) return aDone ? 1 : -1; // completed tasks sink to bottom
+        const at = a.dueDate?.getTime() ?? Infinity;
+        const bt = b.dueDate?.getTime() ?? Infinity;
+        if (at !== bt) return at - bt;
+        return (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0);
+      });
+    }
+
     return result;
   }, [tasks, search, preset, areaFilter]);
 
