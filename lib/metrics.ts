@@ -535,3 +535,151 @@ export async function getCalendarConflictTrendData(userId: string, weeksBack = 8
     }))
   );
 }
+
+// ─── V1 Execution Analytics ───────────────────────────────────────────────────
+
+export async function getExecutionAnalytics(userId: string, weeksBack = 8) {
+  const weeks = getWeeksBack(weeksBack);
+  const days = getDaysBack(14);
+  const currentWeekStart = getWeekStart();
+  const currentWeekEnd = getWeekEnd(currentWeekStart);
+  const today = todayTZ();
+
+  const [
+    inboxCaptured,
+    inboxProcessed,
+    activeRoutines,
+    routineSessionsThisWeek,
+    planItems,
+    futurePromotions,
+    journalEntries,
+    openFutureReviewItems,
+  ] = await Promise.all([
+    prisma.inboxItem.count({ where: { userId } }),
+    prisma.inboxItem.count({
+      where: {
+        userId,
+        OR: [{ processedAt: { not: null } }, { archived: true }],
+      },
+    }),
+    prisma.recurringRoutine.findMany({
+      where: { userId, isActive: true },
+      select: { id: true, title: true, targetCount: true, targetPeriod: true },
+    }),
+    prisma.routineSession.count({
+      where: { userId, completed: true, date: { gte: currentWeekStart, lte: currentWeekEnd } },
+    }),
+    prisma.dailyPlanItem.findMany({
+      where: {
+        dailyPlan: {
+          userId,
+          date: { gte: subDays(today, 14), lte: currentWeekEnd },
+        },
+      },
+      select: { completed: true },
+    }),
+    prisma.activityEvent.count({
+      where: {
+        userId,
+        type: { in: ["FUTURE_PROMOTED", "SOMEDAY_PROMOTED"] },
+        createdAt: { gte: weeks[0], lte: currentWeekEnd },
+      },
+    }),
+    prisma.journalEntry.findMany({
+      where: { userId, date: { gte: days[0] } },
+      select: { date: true },
+    }),
+    prisma.futureItem.count({
+      where: {
+        userId,
+        status: { in: ["FUTURE", "ACTIVE"] },
+        reviewDate: { not: null, lte: today },
+      },
+    }),
+  ]);
+
+  const weeklyCompleted = await Promise.all(
+    weeks.map(async (weekStart) => {
+      const weekEnd = getWeekEnd(weekStart);
+      const completed = await prisma.task.count({
+        where: {
+          userId,
+          status: "DONE",
+          completedAt: { gte: weekStart, lte: weekEnd },
+        },
+      });
+      return { week: weekStart.toISOString(), completed };
+    })
+  );
+
+  const overdueTrend = await Promise.all(
+    weeks.map(async (weekStart) => {
+      const weekEnd = getWeekEnd(weekStart);
+      const overdue = await prisma.task.count({
+        where: {
+          userId,
+          dueDate: { lt: weekEnd },
+          status: { notIn: ["DONE", "ARCHIVED", "DROPPED", "SKIPPED"] },
+        },
+      });
+      return { week: weekStart.toISOString(), overdue };
+    })
+  );
+
+  const categoryDistribution = await prisma.task.groupBy({
+    by: ["area"],
+    where: {
+      userId,
+      status: { notIn: ["ARCHIVED", "DROPPED"] },
+    },
+    _count: { id: true },
+  });
+
+  const futurePromotionTrend = await Promise.all(
+    weeks.map(async (weekStart) => {
+      const weekEnd = getWeekEnd(weekStart);
+      const promoted = await prisma.activityEvent.count({
+        where: {
+          userId,
+          type: { in: ["FUTURE_PROMOTED", "SOMEDAY_PROMOTED"] },
+          createdAt: { gte: weekStart, lte: weekEnd },
+        },
+      });
+      return { week: weekStart.toISOString(), promoted };
+    })
+  );
+
+  const journalDates = new Set(journalEntries.map((entry) => toLocalDateKey(entry.date)));
+  const journalConsistency = days.map((day) => ({
+    date: day.toISOString(),
+    wrote: journalDates.has(toLocalDateKey(day)),
+  }));
+
+  const routineTarget = activeRoutines.reduce((sum, routine) => sum + Math.max(1, routine.targetCount), 0);
+  const planCompleted = planItems.filter((item) => item.completed).length;
+
+  return {
+    cards: {
+      inboxCaptured,
+      inboxProcessed,
+      inboxProcessedRate: inboxCaptured > 0 ? Math.round((inboxProcessed / inboxCaptured) * 100) : 0,
+      routineSessionsThisWeek,
+      routineTarget,
+      routineCompletionRate: routineTarget > 0 ? Math.round((routineSessionsThisWeek / routineTarget) * 100) : 0,
+      tomorrowPlanItems: planItems.length,
+      tomorrowPlanCompleted: planCompleted,
+      tomorrowPlanCompletionRate: planItems.length > 0 ? Math.round((planCompleted / planItems.length) * 100) : 0,
+      futurePromotions,
+      openFutureReviewItems,
+      journalDays: journalDates.size,
+    },
+    weeklyCompleted,
+    overdueTrend,
+    categoryDistribution: categoryDistribution.map((item) => ({
+      area: item.area,
+      count: item._count.id,
+    })),
+    futurePromotionTrend,
+    journalConsistency,
+  };
+}

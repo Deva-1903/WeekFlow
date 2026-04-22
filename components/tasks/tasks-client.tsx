@@ -23,8 +23,8 @@ type ViewMode = "table" | "kanban";
 
 const FILTER_PRESETS = [
   { label: "All", value: "all" },
-  { label: "This Week", value: "this_week" },
-  { label: "Today", value: "today" },
+  { label: "Active", value: "active" },
+  { label: "Tomorrow", value: "tomorrow" },
   { label: "Overdue", value: "overdue" },
   { label: "Backlog", value: "backlog" },
   { label: "Done", value: "done" },
@@ -57,11 +57,11 @@ export function TasksClient({ initialTasks }: Props) {
     }
 
     switch (preset) {
-      case "this_week":
-        result = result.filter((t) => t.status === "THIS_WEEK");
+      case "active":
+        result = result.filter((t) => ["ACTIVE", "IN_PROGRESS", "THIS_WEEK"].includes(t.status));
         break;
-      case "today":
-        result = result.filter((t) => t.status === "TODAY" || t.status === "IN_PROGRESS");
+      case "tomorrow":
+        result = result.filter((t) => ["TOMORROW", "TODAY"].includes(t.status));
         break;
       case "overdue":
         result = result.filter(
@@ -128,8 +128,8 @@ export function TasksClient({ initialTasks }: Props) {
 
   const counts: Record<string, number> = {
     all: tasks.filter((t) => t.status !== "ARCHIVED").length,
-    this_week: tasks.filter((t) => t.status === "THIS_WEEK").length,
-    today: tasks.filter((t) => ["TODAY", "IN_PROGRESS"].includes(t.status)).length,
+    active: tasks.filter((t) => ["ACTIVE", "IN_PROGRESS", "THIS_WEEK"].includes(t.status)).length,
+    tomorrow: tasks.filter((t) => ["TOMORROW", "TODAY"].includes(t.status)).length,
     overdue: tasks.filter((t) => t.dueDate && isOverdue(t.dueDate) && !["DONE", "ARCHIVED", "SKIPPED"].includes(t.status)).length,
     backlog: tasks.filter((t) => t.status === "BACKLOG").length,
     done: tasks.filter((t) => t.status === "DONE").length,

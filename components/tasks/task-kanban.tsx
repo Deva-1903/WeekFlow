@@ -18,6 +18,8 @@ interface Props {
 
 const KANBAN_COLUMNS: { status: TaskStatus; label: string; color: string }[] = [
   { status: "BACKLOG", label: "Backlog", color: "#94a3b8" },
+  { status: "ACTIVE", label: "Active", color: "#10b981" },
+  { status: "TOMORROW", label: "Tomorrow", color: "#f59e0b" },
   { status: "THIS_WEEK", label: "This Week", color: "#6366f1" },
   { status: "TODAY", label: "Today", color: "#8b5cf6" },
   { status: "IN_PROGRESS", label: "In Progress", color: "#0ea5e9" },
@@ -28,7 +30,7 @@ export function TaskKanban({ tasks, onEdit, onDelete, onUpdate }: Props) {
   const { toast } = useToast();
 
   async function handleComplete(task: Task) {
-    const newStatus = task.status === "DONE" ? "THIS_WEEK" : "DONE";
+    const newStatus = task.status === "DONE" ? "ACTIVE" : "DONE";
     try {
       const result = await updateTask(task.id, { status: newStatus });
       onUpdate(result.task as Task);

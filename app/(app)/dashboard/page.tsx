@@ -1,205 +1,158 @@
+import Link from "next/link";
+import { addDays, subDays } from "date-fns";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { getWeekStart, getWeekEnd, formatDate, minutesToHours, AREA_COLORS } from "@/lib/utils";
-import { getDailyCompletionData } from "@/lib/metrics";
 import { generateRecurringTasksForUser } from "@/lib/recurring-tasks";
-import { getFixedCommitmentsForRange, getWeeklyCapacityBreakdown } from "@/lib/commitments";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { generateRoutineTasksForUser } from "@/lib/routines";
+import { endOfDayTZ, endOfWeekTZ, startOfWeekTZ, todayTZ } from "@/lib/timezone";
+import { AREA_COLORS, AREA_LABELS, formatDate, formatDateShort, minutesToHours } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { DashboardCharts } from "@/components/dashboard/dashboard-charts";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuickAddTask } from "@/components/dashboard/quick-add-task";
-import { QuickHealthLog } from "@/components/dashboard/quick-health-log";
-import { RecentActivity } from "@/components/dashboard/recent-activity";
-import { ReviewReminders } from "@/components/dashboard/review-reminders";
 import {
-  CheckCircle2, AlertCircle, Clock, TrendingUp,
-  RotateCcw, Cigarette, Wine, Dumbbell, Target, Calendar, CalendarClock
+  AlertCircle,
+  BookOpen,
+  CheckCircle2,
+  Inbox,
+  ListTodo,
+  Repeat,
+  Sparkles,
+  Target,
 } from "lucide-react";
-import { addDays, subDays } from "date-fns";
-import { todayTZ, endOfDayTZ } from "@/lib/timezone";
-import Link from "next/link";
 
 export default async function DashboardPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
   await generateRecurringTasksForUser(userId);
+  await generateRoutineTasksForUser(userId);
 
   const today = todayTZ();
-  const weekStart = getWeekStart();
-  const weekEnd = getWeekEnd();
+  const weekStart = startOfWeekTZ();
+  const weekEnd = endOfWeekTZ();
 
   const [
-    tasksDueToday,
-    tasksOverdue,
-    weekTasks,
-    todayBigRocks,
-    todayHealthLog,
-    recentEvents,
-    completionData,
-    upcomingDeadlines,
-    todayFixedCommitments,
-    upcomingFixedCommitments,
+    inboxCount,
+    todayPlan,
+    overdueTasks,
+    activeTasks,
+    completedThisWeek,
+    routines,
     futureReviewItems,
-    futureItemsToRevisit,
-    capacityBreakdown,
+    journalToday,
+    recentCompletions,
   ] = await Promise.all([
-    prisma.task.findMany({
-      where: {
-        userId,
-        dueDate: { gte: today, lte: endOfDayTZ(today) },
-        status: { notIn: ["DONE", "ARCHIVED", "SKIPPED"] },
+    prisma.inboxItem.count({
+      where: { userId, archived: false, processedAt: null },
+    }),
+    prisma.dailyPlan.findUnique({
+      where: { userId_date: { userId, date: today } },
+      include: {
+        items: { include: { task: true }, orderBy: { order: "asc" } },
+        bigRocks: { include: { task: true }, orderBy: { order: "asc" } },
       },
-      orderBy: { priority: "desc" },
-      take: 5,
     }),
     prisma.task.findMany({
       where: {
         userId,
         dueDate: { lt: today },
-        status: { notIn: ["DONE", "ARCHIVED", "SKIPPED"] },
+        status: { notIn: ["DONE", "ARCHIVED", "DROPPED", "SKIPPED"] },
       },
-      orderBy: { dueDate: "asc" },
+      orderBy: [{ dueDate: "asc" }, { priority: "desc" }],
       take: 5,
     }),
     prisma.task.findMany({
       where: {
         userId,
-        status: { in: ["THIS_WEEK", "TODAY", "IN_PROGRESS", "DONE"] },
+        status: { in: ["ACTIVE", "TOMORROW", "IN_PROGRESS", "THIS_WEEK", "TODAY"] },
+      },
+      orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
+      take: 8,
+    }),
+    prisma.task.count({
+      where: {
+        userId,
+        status: "DONE",
+        completedAt: { gte: weekStart, lte: weekEnd },
       },
     }),
-    prisma.dailyPlan.findFirst({
-      where: { userId, date: today },
-      include: { bigRocks: { include: { task: true }, orderBy: { order: "asc" } } },
+    prisma.recurringRoutine.findMany({
+      where: { userId, isActive: true },
+      include: {
+        sessions: {
+          where: { date: { gte: weekStart, lte: weekEnd } },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      take: 6,
     }),
-    prisma.healthLog.findFirst({ where: { userId, date: today } }),
-    prisma.activityEvent.findMany({
-      where: { userId, createdAt: { gte: subDays(new Date(), 3) } },
-      orderBy: { createdAt: "desc" },
-      take: 10,
+    prisma.futureItem.findMany({
+      where: {
+        userId,
+        status: { in: ["FUTURE", "ACTIVE"] },
+        reviewDate: { not: null, lte: endOfDayTZ(addDays(today, 7)) },
+      },
+      orderBy: [{ reviewDate: "asc" }, { createdAt: "desc" }],
+      take: 5,
     }),
-    getDailyCompletionData(userId, 7),
+    prisma.journalEntry.findUnique({
+      where: { userId_date: { userId, date: today } },
+    }),
     prisma.task.findMany({
       where: {
         userId,
-        dueDate: { gte: today, lte: subDays(today, -7) },
-        status: { notIn: ["DONE", "ARCHIVED", "SKIPPED"] },
+        status: "DONE",
+        completedAt: { gte: subDays(today, 7) },
       },
-      orderBy: { dueDate: "asc" },
+      orderBy: { completedAt: "desc" },
       take: 5,
     }),
-    getFixedCommitmentsForRange(userId, today, endOfDayTZ(today)),
-    getFixedCommitmentsForRange(userId, today, endOfDayTZ(addDays(today, 7))),
-    prisma.somedayItem.findMany({
-      where: {
-        userId,
-        status: { in: ["SOMEDAY", "ACTIVE"] },
-        reviewDate: { not: null, lte: addDays(today, 7) },
-      },
-      orderBy: [{ reviewDate: "asc" }, { isImportant: "desc" }],
-      take: 5,
-    }),
-    prisma.somedayItem.findMany({
-      where: {
-        userId,
-        status: { in: ["SOMEDAY", "ACTIVE"] },
-        OR: [
-          { isImportant: true },
-          { reviewDate: { not: null, lte: addDays(today, 21) } },
-        ],
-      },
-      orderBy: [{ isImportant: "desc" }, { reviewDate: "asc" }, { createdAt: "desc" }],
-      take: 5,
-    }),
-    getWeeklyCapacityBreakdown(userId, weekStart),
   ]);
 
-  const weekCompleted = weekTasks.filter((t) => t.status === "DONE");
-  const completionRate = weekTasks.length > 0
-    ? Math.round((weekCompleted.length / weekTasks.length) * 100)
-    : 0;
-  const weekPlannedMinutes = weekTasks.reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0);
-  const upcomingImportedCommitments = upcomingFixedCommitments.filter(
-    (item) => item.sourceType === "EXTERNAL_SYNC"
-  );
+  const plannedToday = todayPlan?.items?.length
+    ? todayPlan.items
+    : todayPlan?.bigRocks?.map((item) => ({
+        id: item.id,
+        taskId: item.taskId,
+        task: item.task,
+        completed: item.completed,
+        isTopPriority: true,
+      })) ?? [];
 
-  const rescheduledThisWeek = await prisma.activityEvent.count({
-    where: { userId, type: "TASK_RESCHEDULED", createdAt: { gte: weekStart, lte: weekEnd } },
-  });
-
-  const statCards = [
-    {
-      label: "Due Today",
-      value: tasksDueToday.length,
-      icon: Calendar,
-      color: tasksDueToday.length > 0 ? "#f59e0b" : "#10b981",
-      href: "/tasks",
-    },
-    {
-      label: "Overdue",
-      value: tasksOverdue.length,
-      icon: AlertCircle,
-      color: tasksOverdue.length > 0 ? "#ef4444" : "#10b981",
-      href: "/tasks",
-    },
-    {
-      label: "Week Completed",
-      value: weekCompleted.length,
-      icon: CheckCircle2,
-      color: "#6366f1",
-      href: "/tasks",
-    },
-    {
-      label: "Completion Rate",
-      value: `${completionRate}%`,
-      icon: TrendingUp,
-      color: completionRate >= 70 ? "#10b981" : completionRate >= 40 ? "#f59e0b" : "#ef4444",
-      href: "/analytics",
-    },
-    {
-      label: "Planned Hours",
-      value: minutesToHours(weekPlannedMinutes),
-      icon: Clock,
-      color: "#64748b",
-      href: "/weekly-review",
-    },
-    {
-      label: "Rescheduled",
-      value: rescheduledThisWeek,
-      icon: RotateCcw,
-      color: rescheduledThisWeek > 3 ? "#f97316" : "#64748b",
-      href: "/analytics",
-    },
-  ];
+  const activeEstimate = activeTasks.reduce((sum, task) => sum + (task.estimatedMinutes ?? 0), 0);
+  const routineProgress = routines.map((routine) => ({
+    ...routine,
+    progress: Math.min(100, Math.round((routine.sessions.length / Math.max(1, routine.targetCount)) * 100)),
+  }));
 
   return (
     <div className="space-y-6 max-w-7xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-            {formatDate(new Date())} · Week of {formatDate(weekStart)}
+            {formatDate(today)} · list-first clarity for the next move
           </p>
         </div>
         <QuickAddTask />
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statCards.map((card) => {
-          const Icon = card.icon;
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: "Inbox", value: inboxCount, icon: Inbox, href: "/inbox", color: inboxCount ? "#f59e0b" : "#10b981" },
+          { label: "Planned Today", value: plannedToday.length, icon: Target, href: "/daily-planner", color: "#6366f1" },
+          { label: "Overdue", value: overdueTasks.length, icon: AlertCircle, href: "/tasks", color: overdueTasks.length ? "#ef4444" : "#10b981" },
+          { label: "Done This Week", value: completedThisWeek, icon: CheckCircle2, href: "/analytics", color: "#10b981" },
+        ].map((stat) => {
+          const Icon = stat.icon;
           return (
-            <Link key={card.label} href={card.href}>
-              <Card className="hover:shadow-md transition-shadow cursor-pointer">
+            <Link key={stat.label} href={stat.href}>
+              <Card className="hover:shadow-md transition-shadow">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <Icon className="h-4 w-4" style={{ color: card.color }} />
-                  </div>
-                  <div className="text-2xl font-bold" style={{ color: card.color }}>
-                    {card.value}
-                  </div>
-                  <div className="text-xs text-[var(--muted-foreground)] mt-0.5">{card.label}</div>
+                  <Icon className="h-4 w-4 mb-2" style={{ color: stat.color }} />
+                  <div className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</div>
+                  <div className="text-xs text-[var(--muted-foreground)] mt-0.5">{stat.label}</div>
                 </CardContent>
               </Card>
             </Link>
@@ -207,46 +160,39 @@ export default async function DashboardPage() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left column */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Big Rocks */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1.15fr,0.85fr] gap-6">
+        <div className="space-y-6">
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-[var(--primary)]" />
-                  Big Rocks Today
+                  Top Priorities Today
                 </CardTitle>
-                <Link href="/daily-planner" className="text-xs text-[var(--primary)] hover:underline">
-                  Plan day →
-                </Link>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/daily-planner">Plan tomorrow</Link>
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
-              {todayBigRocks?.bigRocks.length ? (
+              {plannedToday.length === 0 ? (
+                <div className="rounded-lg border-2 border-dashed border-[var(--border)] p-8 text-center">
+                  <p className="text-sm text-[var(--muted-foreground)]">No plan for today yet.</p>
+                  <Button asChild size="sm" className="mt-3">
+                    <Link href="/daily-planner">Choose tomorrow&apos;s focus</Link>
+                  </Button>
+                </div>
+              ) : (
                 <div className="space-y-2">
-                  {todayBigRocks.bigRocks.map((br) => (
-                    <div key={br.id} className="flex items-center gap-3 p-2.5 rounded-md bg-[var(--muted)]/50">
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${br.completed ? "bg-[var(--primary)] border-[var(--primary)]" : "border-[var(--border)]"}`}>
-                        {br.completed && <CheckCircle2 className="h-3 w-3 text-white" />}
-                      </div>
-                      <span className={`text-sm flex-1 ${br.completed ? "line-through text-[var(--muted-foreground)]" : ""}`}>
-                        {br.task.title}
+                  {plannedToday.map((item) => (
+                    <div key={item.id} className="flex items-center gap-3 rounded-md bg-[var(--muted)]/40 p-3">
+                      <CheckCircle2 className={`h-4 w-4 ${item.completed ? "text-emerald-500" : "text-[var(--muted-foreground)]"}`} />
+                      <span className={`text-sm flex-1 ${item.completed ? "line-through text-[var(--muted-foreground)]" : ""}`}>
+                        {item.task.title}
                       </span>
-                      <div
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: AREA_COLORS[br.task.area] }}
-                      />
+                      {"isTopPriority" in item && item.isTopPriority && <Badge variant="outline" className="text-[10px]">top</Badge>}
                     </div>
                   ))}
-                </div>
-              ) : (
-                <div className="text-center py-6">
-                  <p className="text-sm text-[var(--muted-foreground)]">No big rocks set for today.</p>
-                  <Link href="/daily-planner" className="text-xs text-[var(--primary)] hover:underline mt-1 block">
-                    Set your focus for today →
-                  </Link>
                 </div>
               )}
             </CardContent>
@@ -254,221 +200,156 @@ export default async function DashboardPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-[var(--primary)]" />
-                Weekly Load Reality Check
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-md bg-[var(--muted)]/40 p-3">
-                  <div className="text-xs text-[var(--muted-foreground)]">Theoretical focus</div>
-                  <div className="text-lg font-semibold">{minutesToHours(capacityBreakdown.theoreticalMinutes)}</div>
-                </div>
-                <div className="rounded-md bg-[var(--muted)]/40 p-3">
-                  <div className="text-xs text-[var(--muted-foreground)]">Fixed commitments</div>
-                  <div className="text-lg font-semibold text-sky-600">{minutesToHours(capacityBreakdown.fixedCommitmentMinutes)}</div>
-                </div>
-                <div className="rounded-md bg-[var(--muted)]/40 p-3">
-                  <div className="text-xs text-[var(--muted-foreground)]">Remaining focus</div>
-                  <div className="text-lg font-semibold text-emerald-600">{minutesToHours(capacityBreakdown.remainingFocusMinutes)}</div>
-                </div>
-                <div className="rounded-md bg-[var(--muted)]/40 p-3">
-                  <div className="text-xs text-[var(--muted-foreground)]">Committed tasks</div>
-                  <div className={`text-lg font-semibold ${capacityBreakdown.isOverloaded ? "text-red-500" : "text-[var(--foreground)]"}`}>
-                    {minutesToHours(capacityBreakdown.committedTaskMinutes)}
-                  </div>
-                </div>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <ListTodo className="h-4 w-4 text-[var(--primary)]" />
+                  Active Work
+                </CardTitle>
+                <Badge variant="secondary">{activeEstimate ? minutesToHours(activeEstimate) : "No estimate"}</Badge>
               </div>
-              <p className={`text-sm ${
-                capacityBreakdown.isOverloaded ? "text-red-500" : "text-[var(--muted-foreground)]"
-              }`}>
-                {capacityBreakdown.isOverloaded
-                  ? `Overloaded by ${minutesToHours(capacityBreakdown.overloadMinutes)}.`
-                  : "The week fits inside the remaining focus room."}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2">
-                <CalendarClock className="h-4 w-4 text-[var(--primary)]" />
-                Upcoming Fixed Commitments Today
-              </CardTitle>
             </CardHeader>
             <CardContent>
-              {todayFixedCommitments.length === 0 ? (
-                <p className="text-sm text-[var(--muted-foreground)]">
-                  No fixed commitments imported for today.
-                </p>
+              {activeTasks.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground)] py-6 text-center">No active tasks. The inbox is the front door.</p>
               ) : (
                 <div className="space-y-2">
-                  {todayFixedCommitments.map((commitment) => (
-                    <div key={commitment.id} className="flex items-center gap-3 rounded-md bg-[var(--muted)]/40 p-3">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: commitment.color ?? "#94a3b8" }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{commitment.title}</div>
-                        <div className="text-xs text-[var(--muted-foreground)]">
-                          {commitment.startTime} - {commitment.endTime}
-                        </div>
-                      </div>
-                      <Badge variant={commitment.affectsCapacity ? "secondary" : "outline"} className="text-[10px]">
-                        {commitment.secondaryLabel ?? "Fixed"}
-                      </Badge>
-                    </div>
+                  {activeTasks.map((task) => (
+                    <Link key={task.id} href="/tasks" className="flex items-center gap-3 rounded-md border border-[var(--border)] p-3 hover:bg-[var(--muted)]/40 transition-colors">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: AREA_COLORS[task.area] }} />
+                      <span className="text-sm flex-1">{task.title}</span>
+                      <Badge variant="outline" className="text-[10px]">{AREA_LABELS[task.area]}</Badge>
+                    </Link>
                   ))}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Charts */}
-          <DashboardCharts completionData={completionData} />
-
-          {/* Tasks due today */}
-          {(tasksDueToday.length > 0 || tasksOverdue.length > 0) && (
-            <Card>
+          {overdueTasks.length > 0 && (
+            <Card className="border-red-200">
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-amber-500" />
-                  Needs Attention
+                <CardTitle className="flex items-center gap-2 text-red-600">
+                  <AlertCircle className="h-4 w-4" />
+                  Overdue / Urgent
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-1.5">
-                  {tasksOverdue.slice(0, 3).map((task) => (
-                    <div key={task.id} className="flex items-center gap-3 p-2 rounded-md hover:bg-[var(--muted)]/50 group">
-                      <div className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-                      <span className="text-sm flex-1 truncate">{task.title}</span>
-                      <Badge variant="destructive" className="text-xs shrink-0">overdue</Badge>
-                    </div>
-                  ))}
-                  {tasksDueToday.slice(0, 3).map((task) => (
-                    <div key={task.id} className="flex items-center gap-3 p-2 rounded-md hover:bg-[var(--muted)]/50">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                      <span className="text-sm flex-1 truncate">{task.title}</span>
-                      <Badge variant="warning" className="text-xs shrink-0">today</Badge>
-                    </div>
-                  ))}
-                </div>
+              <CardContent className="space-y-2">
+                {overdueTasks.map((task) => (
+                  <div key={task.id} className="flex items-center justify-between gap-3 rounded-md bg-red-50 p-3">
+                    <span className="text-sm">{task.title}</span>
+                    {task.dueDate && <span className="text-xs text-red-600">{formatDateShort(task.dueDate)}</span>}
+                  </div>
+                ))}
               </CardContent>
             </Card>
           )}
         </div>
 
-        {/* Right column */}
         <div className="space-y-6">
-          <ReviewReminders items={futureReviewItems} />
-
-          {/* Health today */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">Today&apos;s Health</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Repeat className="h-4 w-4 text-[var(--primary)]" />
+                  Routines This Week
+                </CardTitle>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/routines">Open</Link>
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-3">
-                <Cigarette className={`h-4 w-4 ${todayHealthLog?.smokedToday === false ? "text-emerald-500" : todayHealthLog?.smokedToday ? "text-red-400" : "text-[var(--muted-foreground)]"}`} />
-                <span className="text-sm">Smoke-free</span>
-                <span className="ml-auto text-xs font-medium">
-                  {todayHealthLog == null ? "—" : todayHealthLog.smokedToday ? "No" : "Yes"}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Wine className={`h-4 w-4 ${todayHealthLog?.drankAlcoholToday === false ? "text-emerald-500" : todayHealthLog?.drankAlcoholToday ? "text-amber-400" : "text-[var(--muted-foreground)]"}`} />
-                <span className="text-sm">Alcohol-free</span>
-                <span className="ml-auto text-xs font-medium">
-                  {todayHealthLog == null ? "—" : todayHealthLog.drankAlcoholToday ? "No" : "Yes"}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Dumbbell className={`h-4 w-4 ${todayHealthLog?.didPhysicalActivityToday ? "text-emerald-500" : todayHealthLog?.didPhysicalActivityToday === false ? "text-[var(--muted-foreground)]" : "text-[var(--muted-foreground)]"}`} />
-                <span className="text-sm">Moved today</span>
-                <span className="ml-auto text-xs font-medium">
-                  {todayHealthLog == null ? "—" : todayHealthLog.didPhysicalActivityToday ? "Yes" : "No"}
-                </span>
-              </div>
-              <QuickHealthLog
-                existing={todayHealthLog ? {
-                  smokedToday: todayHealthLog.smokedToday,
-                  drankAlcoholToday: todayHealthLog.drankAlcoholToday,
-                  didPhysicalActivityToday: todayHealthLog.didPhysicalActivityToday,
-                } : undefined}
-              />
+            <CardContent>
+              {routineProgress.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground)]">No routines yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {routineProgress.map((routine) => (
+                    <div key={routine.id}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span>{routine.title}</span>
+                        <span className="text-xs text-[var(--muted-foreground)]">{routine.sessions.length}/{routine.targetCount}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-[var(--muted)] overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${routine.progress}%`, backgroundColor: AREA_COLORS[routine.category] ?? "#6366f1" }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Recent activity */}
-          <RecentActivity events={recentEvents} />
-
-          {futureItemsToRevisit.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Future Items To Revisit</CardTitle>
-              </CardHeader>
-              <CardContent>
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-[var(--primary)]" />
+                  Future Items To Revisit
+                </CardTitle>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/future">Open</Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {futureReviewItems.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground)]">No future reviews due soon.</p>
+              ) : (
                 <div className="space-y-2">
-                  {futureItemsToRevisit.map((item) => (
-                    <div key={item.id} className="flex items-center gap-2 text-sm">
-                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.isImportant ? "bg-red-400" : "bg-[var(--primary)]"}`} />
-                      <span className="flex-1 truncate">{item.title}</span>
-                      {item.reviewDate && (
-                        <span className="text-xs text-[var(--muted-foreground)]">
-                          {formatDate(item.reviewDate)}
-                        </span>
-                      )}
-                    </div>
+                  {futureReviewItems.map((item) => (
+                    <Link key={item.id} href="/future" className="block rounded-md border border-[var(--border)] p-3 hover:bg-[var(--muted)]/40 transition-colors">
+                      <p className="text-sm font-medium">{item.title}</p>
+                      {item.reviewDate && <p className="text-xs text-[var(--muted-foreground)] mt-1">Review {formatDateShort(item.reviewDate)}</p>}
+                    </Link>
                   ))}
                 </div>
-                <Link href="/future" className="text-xs text-[var(--primary)] hover:underline mt-3 inline-block">
-                  Open Future →
-                </Link>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </CardContent>
+          </Card>
 
-          {/* Upcoming deadlines */}
-          {upcomingDeadlines.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Upcoming Deadlines</CardTitle>
-              </CardHeader>
-              <CardContent>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-[var(--primary)]" />
+                Brain Dump
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {journalToday ? (
+                <p className="text-sm text-[var(--muted-foreground)] line-clamp-3">
+                  {journalToday.brainDump || journalToday.freeformText || journalToday.bestMoment || "Journal started for today."}
+                </p>
+              ) : (
+                <p className="text-sm text-[var(--muted-foreground)]">No journal entry yet today.</p>
+              )}
+              <Button asChild size="sm" className="mt-3">
+                <Link href="/journal">{journalToday ? "Continue journal" : "Start brain dump"}</Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle>Recent Completions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {recentCompletions.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground)]">No completions in the last week.</p>
+              ) : (
                 <div className="space-y-2">
-                  {upcomingDeadlines.map((task) => (
+                  {recentCompletions.map((task) => (
                     <div key={task.id} className="flex items-center gap-2 text-sm">
-                      <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: AREA_COLORS[task.area] }} />
-                      <span className="flex-1 truncate">{task.title}</span>
-                      <span className="text-xs text-[var(--muted-foreground)] shrink-0">
-                        {task.dueDate ? formatDate(task.dueDate) : ""}
-                      </span>
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      <span className="line-clamp-1">{task.title}</span>
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {upcomingImportedCommitments.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Next Imported Commitments</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {upcomingImportedCommitments.slice(0, 5).map((commitment) => (
-                    <div key={commitment.id} className="flex items-center gap-2 text-sm">
-                      <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: commitment.color ?? "#0ea5e9" }} />
-                      <span className="flex-1 truncate">{commitment.title}</span>
-                      <span className="text-xs text-[var(--muted-foreground)]">
-                        {formatDate(commitment.date)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

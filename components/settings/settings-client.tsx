@@ -179,7 +179,7 @@ export function SettingsClient({
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-          Configure your profile, capacity assumptions, and calendar sync behavior.
+          Configure profile and planning defaults. Calendar sync is optional and secondary.
         </p>
       </div>
 
@@ -210,8 +210,8 @@ export function SettingsClient({
               <Clock className="h-4 w-4 text-[var(--primary)]" />
               Weekly Capacity Rules
             </CardTitle>
-            <CardDescription>
-              Theoretical focus room is reduced by imported fixed commitments and recurring commitments during Weekly Review.
+              <CardDescription>
+              These defaults support planning without turning WeekFlow into a heavy calendar system.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -282,10 +282,10 @@ export function SettingsClient({
             <div>
               <CardTitle className="flex items-center gap-2">
                 <CalendarClock className="h-4 w-4 text-[var(--primary)]" />
-                Calendar Connections
+                Optional Calendar Connections
               </CardTitle>
               <CardDescription>
-                Imported commitments stay separate from tasks and can optionally affect weekly capacity.
+                Secondary calendar features stay separate from tasks and are safe to leave disabled.
               </CardDescription>
             </div>
             <div className="flex gap-2">

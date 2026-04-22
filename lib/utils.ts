@@ -71,8 +71,13 @@ export const AREA_LABELS: Record<string, string> = {
   COURSEWORK: "Coursework",
   RESEARCH: "Research",
   INTERNSHIP_PREP: "Internship Prep",
+  SDE_PREP: "SDE Prep",
+  ML_PREP: "ML Prep",
+  AI_SAFETY_ALIGNMENT: "AI Safety / Alignment",
   PERSONAL: "Personal",
   HEALTH: "Health",
+  JOB: "Job",
+  LIFE_ADMIN: "Life Admin",
   ADMIN: "Admin",
   SOCIAL: "Social",
   OTHER: "Other",
@@ -82,8 +87,13 @@ export const AREA_COLORS: Record<string, string> = {
   COURSEWORK: "#6366f1",
   RESEARCH: "#8b5cf6",
   INTERNSHIP_PREP: "#06b6d4",
+  SDE_PREP: "#2563eb",
+  ML_PREP: "#14b8a6",
+  AI_SAFETY_ALIGNMENT: "#7c3aed",
   PERSONAL: "#10b981",
   HEALTH: "#f59e0b",
+  JOB: "#f97316",
+  LIFE_ADMIN: "#475569",
   ADMIN: "#64748b",
   SOCIAL: "#f97316",
   OTHER: "#94a3b8",
@@ -91,11 +101,14 @@ export const AREA_COLORS: Record<string, string> = {
 
 export const STATUS_LABELS: Record<string, string> = {
   BACKLOG: "Backlog",
+  ACTIVE: "Active",
+  TOMORROW: "Tomorrow",
   THIS_WEEK: "This Week",
   TODAY: "Today",
   IN_PROGRESS: "In Progress",
   DONE: "Done",
   SKIPPED: "Skipped",
+  DROPPED: "Dropped",
   ARCHIVED: "Archived",
 };
 
@@ -147,7 +160,10 @@ export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
 
 export const TASK_SOURCE_LABELS: Record<string, string> = {
   MANUAL: "Manual",
+  INBOX: "Inbox",
+  ROUTINE: "Routine",
   RECURRING: "Recurring",
+  PROMOTED_FUTURE: "Promoted Future",
   PROMOTED_FROM_SOMEDAY: "Promoted",
 };
 
@@ -157,6 +173,25 @@ export const SOMEDAY_STATUS_LABELS: Record<string, string> = {
   DONE: "Done",
   DROPPED: "Dropped",
   ARCHIVED: "Archived",
+};
+
+export const FUTURE_STATUS_LABELS: Record<string, string> = {
+  FUTURE: "Future",
+  ACTIVE: "Promoted",
+  DONE: "Done",
+  DROPPED: "Dropped",
+  ARCHIVED: "Archived",
+};
+
+export const ROUTINE_STRICTNESS_LABELS: Record<string, string> = {
+  FLEXIBLE: "Flexible",
+  FIXED: "Fixed",
+};
+
+export const ROUTINE_RECURRENCE_LABELS: Record<string, string> = {
+  DAILY: "Daily",
+  WEEKLY: "Weekly",
+  CUSTOM: "Custom",
 };
 
 export const EVENT_SOURCE_LABELS: Record<string, string> = {

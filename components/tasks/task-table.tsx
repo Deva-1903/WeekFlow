@@ -36,7 +36,7 @@ export function TaskTable({ tasks, onEdit, onDelete, onUpdate }: Props) {
   const { toast } = useToast();
 
   async function handleComplete(task: Task) {
-    const newStatus = task.status === "DONE" ? "THIS_WEEK" : "DONE";
+    const newStatus = task.status === "DONE" ? "ACTIVE" : "DONE";
     try {
       const result = await updateTask(task.id, { status: newStatus });
       onUpdate(result.task as Task);
@@ -126,6 +126,8 @@ export function TaskTable({ tasks, onEdit, onDelete, onUpdate }: Props) {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       done ? "bg-emerald-50 text-emerald-600" :
                       task.status === "IN_PROGRESS" ? "bg-blue-50 text-blue-600" :
+                      task.status === "ACTIVE" ? "bg-emerald-50 text-emerald-600" :
+                      task.status === "TOMORROW" ? "bg-amber-50 text-amber-600" :
                       task.status === "THIS_WEEK" ? "bg-indigo-50 text-indigo-600" :
                       task.status === "TODAY" ? "bg-purple-50 text-purple-600" :
                       "bg-[var(--muted)] text-[var(--muted-foreground)]"

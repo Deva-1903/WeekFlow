@@ -10,11 +10,14 @@ datasource db {
 
 enum TaskStatus {
   BACKLOG
+  ACTIVE
+  TOMORROW
   THIS_WEEK
   TODAY
   IN_PROGRESS
   DONE
   SKIPPED
+  DROPPED
   ARCHIVED
 }
 
@@ -22,8 +25,13 @@ enum TaskArea {
   COURSEWORK
   RESEARCH
   INTERNSHIP_PREP
+  SDE_PREP
+  ML_PREP
+  AI_SAFETY_ALIGNMENT
   PERSONAL
   HEALTH
+  JOB
+  LIFE_ADMIN
   ADMIN
   SOCIAL
   OTHER
@@ -86,6 +94,11 @@ enum EventType {
   SOMEDAY_PROMOTED
   SOMEDAY_REVIEWED
   RECURRING_TASK_GENERATED
+  INBOX_CAPTURED
+  INBOX_PROCESSED
+  ROUTINE_LOGGED
+  JOURNAL_SAVED
+  FUTURE_PROMOTED
 }
 
 enum CalendarProvider {
@@ -108,7 +121,10 @@ enum SomedayStatus {
 
 enum TaskSourceType {
   MANUAL
+  INBOX
+  ROUTINE
   RECURRING
+  PROMOTED_FUTURE
   PROMOTED_FROM_SOMEDAY
 }
 
@@ -126,6 +142,37 @@ enum CommitmentType {
   MEETING
   PERSONAL
   OTHER
+}
+
+enum InboxConvertedType {
+  TASK
+  FUTURE
+  JOURNAL
+  DISCARD
+}
+
+enum FutureStatus {
+  FUTURE
+  ACTIVE
+  DONE
+  DROPPED
+  ARCHIVED
+}
+
+enum RoutineRecurrenceType {
+  DAILY
+  WEEKLY
+  CUSTOM
+}
+
+enum RoutineTargetPeriod {
+  DAY
+  WEEK
+}
+
+enum RoutineStrictnessMode {
+  FLEXIBLE
+  FIXED
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
@@ -158,6 +205,11 @@ model User {
   recurringCommitmentTemplates RecurringCommitmentTemplate[]
   recurringTaskTemplates       RecurringTaskTemplate[]
   somedayItems                 SomedayItem[]
+  inboxItems                   InboxItem[]
+  futureItems                  FutureItem[]
+  recurringRoutines            RecurringRoutine[]
+  routineSessions              RoutineSession[]
+  journalEntries               JournalEntry[]
 
   @@map("users")
 }
@@ -220,8 +272,11 @@ model Task {
   isRecurring               Boolean        @default(false)
   sourceType                TaskSourceType @default(MANUAL)
   originRecurringTemplateId String?
+  originRoutineId           String?
   promotedFromSomedayId     String?        @unique
+  promotedFromFutureId      String?        @unique
   recurrencePeriodKey       String?
+  routinePeriodKey          String?
   notes                     String?        @db.Text
   createdAt                 DateTime       @default(now())
   updatedAt                 DateTime       @updatedAt
@@ -229,16 +284,22 @@ model Task {
   user                    User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   timeBlocks              TimeBlock[]
   bigRocks                DailyBigRock[]
+  dailyPlanItems          DailyPlanItem[]
+  routineSessions         RoutineSession[]
   weeklyTasks             WeeklyPlanTask[]
   originRecurringTemplate RecurringTaskTemplate? @relation("GeneratedTasks", fields: [originRecurringTemplateId], references: [id], onDelete: SetNull)
+  originRoutine           RecurringRoutine?      @relation("RoutineGeneratedTasks", fields: [originRoutineId], references: [id], onDelete: SetNull)
   promotedFromSomeday     SomedayItem?           @relation("SomedaySource", fields: [promotedFromSomedayId], references: [id], onDelete: SetNull)
+  promotedFromFuture      FutureItem?            @relation("FutureSource", fields: [promotedFromFutureId], references: [id], onDelete: SetNull)
 
   @@unique([originRecurringTemplateId, recurrencePeriodKey])
+  @@unique([originRoutineId, routinePeriodKey])
   @@index([userId, status])
   @@index([userId, dueDate])
   @@index([userId, reviewDate])
   @@index([userId, area])
   @@index([userId, sourceType])
+  @@index([userId, originRoutineId])
   @@map("tasks")
 }
 
@@ -287,8 +348,9 @@ model DailyPlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   bigRocks DailyBigRock[]
+  items    DailyPlanItem[]
 
   @@unique([userId, date])
   @@index([userId, date])
@@ -309,6 +371,24 @@ model DailyBigRock {
 
   @@unique([dailyPlanId, taskId])
   @@map("daily_big_rocks")
+}
+
+model DailyPlanItem {
+  id            String    @id @default(cuid())
+  dailyPlanId   String
+  taskId        String
+  order         Int       @default(0)
+  isTopPriority Boolean   @default(false)
+  completed     Boolean   @default(false)
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  dailyPlan DailyPlan @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyPlanId, taskId])
+  @@index([dailyPlanId, order])
+  @@map("daily_plan_items")
 }
 
 model TimeBlock {
@@ -370,6 +450,116 @@ model ActivityEvent {
 
   @@index([userId, createdAt])
   @@map("activity_events")
+}
+
+model InboxItem {
+  id              String              @id @default(cuid())
+  userId          String
+  title           String
+  note            String?             @db.Text
+  processedAt     DateTime?
+  convertedToType InboxConvertedType?
+  convertedToId   String?
+  archived        Boolean             @default(false)
+  createdAt       DateTime            @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, archived, processedAt])
+  @@index([userId, createdAt])
+  @@map("inbox_items")
+}
+
+model FutureItem {
+  id              String       @id @default(cuid())
+  userId          String
+  title           String
+  description     String?      @db.Text
+  category        TaskArea     @default(OTHER)
+  targetTimeframe String?
+  reviewDate      DateTime?
+  status          FutureStatus @default(FUTURE)
+  promotedTaskId  String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user         User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  promotedTask Task? @relation("FutureSource")
+
+  @@index([userId, status])
+  @@index([userId, reviewDate])
+  @@index([userId, category])
+  @@map("future_items")
+}
+
+model RecurringRoutine {
+  id                    String                @id @default(cuid())
+  userId                String
+  title                 String
+  description           String?               @db.Text
+  category              TaskArea              @default(OTHER)
+  recurrenceType        RoutineRecurrenceType @default(WEEKLY)
+  targetCount           Int                   @default(1)
+  targetPeriod          RoutineTargetPeriod   @default(WEEK)
+  preferredDays         Int[]                 @default([])
+  preferredTime         String?
+  strictnessMode        RoutineStrictnessMode @default(FLEXIBLE)
+  generateTasks         Boolean               @default(false)
+  defaultTaskTitle      String?
+  defaultTaskCategory   TaskArea?
+  defaultEffortEstimate Int?
+  isActive              Boolean               @default(true)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions       RoutineSession[]
+  generatedTasks Task[]           @relation("RoutineGeneratedTasks")
+
+  @@index([userId, isActive])
+  @@index([userId, category])
+  @@map("recurring_routines")
+}
+
+model RoutineSession {
+  id           String   @id @default(cuid())
+  userId       String
+  routineId    String
+  date         DateTime
+  completed    Boolean  @default(true)
+  notes        String?  @db.Text
+  linkedTaskId String?
+  createdAt    DateTime @default(now())
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routine    RecurringRoutine @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  linkedTask Task?            @relation(fields: [linkedTaskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([routineId, date])
+  @@map("routine_sessions")
+}
+
+model JournalEntry {
+  id                  String   @id @default(cuid())
+  userId              String
+  date                DateTime
+  title               String?
+  bestMoment          String?  @db.Text
+  notableConversation String?  @db.Text
+  wins                String?  @db.Text
+  struggles           String?  @db.Text
+  brainDump           String?  @db.Text
+  gratitude           String?  @db.Text
+  freeformText        String?  @db.Text
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("journal_entries")
 }
 
 model CalendarConnection {

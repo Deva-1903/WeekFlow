@@ -6,10 +6,10 @@ export default async function FuturePage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const items = await prisma.somedayItem.findMany({
+  const items = await prisma.futureItem.findMany({
     where: { userId },
     include: {
-      generatedTask: {
+      promotedTask: {
         select: {
           id: true,
           title: true,
@@ -18,7 +18,6 @@ export default async function FuturePage() {
       },
     },
     orderBy: [
-      { isImportant: "desc" },
       { reviewDate: "asc" },
       { createdAt: "desc" },
     ],

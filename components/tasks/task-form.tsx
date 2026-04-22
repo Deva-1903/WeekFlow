@@ -14,14 +14,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { createTask, updateTask } from "@/actions/tasks";
 import { useToast } from "@/components/ui/use-toast";
 import { AREA_LABELS, STATUS_LABELS, PRIORITY_LABELS } from "@/lib/utils";
-import { format } from "date-fns";
+import { toLocalDateKey } from "@/lib/timezone";
 import { Loader2 } from "lucide-react";
 
 const schema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   area: z.nativeEnum(TaskArea).default("OTHER"),
-  status: z.nativeEnum(TaskStatus).default("BACKLOG"),
+  status: z.nativeEnum(TaskStatus).default("ACTIVE"),
   priority: z.nativeEnum(Priority).default("MEDIUM"),
   urgency: z.nativeEnum(Urgency).default("MEDIUM"),
   estimatedMinutes: z.union([z.number().positive(), z.literal("")]).optional(),
@@ -55,11 +55,11 @@ export function TaskForm({ open, task, onClose, onSaved }: Props) {
         priority: task.priority,
         urgency: task.urgency,
         estimatedMinutes: task.estimatedMinutes ?? "",
-        dueDate: task.dueDate ? format(task.dueDate, "yyyy-MM-dd") : "",
+        dueDate: task.dueDate ? toLocalDateKey(task.dueDate) : "",
         notes: task.notes ?? "",
       });
     } else {
-      reset({ title: "", area: "OTHER", status: "BACKLOG", priority: "MEDIUM", urgency: "MEDIUM" });
+      reset({ title: "", area: "OTHER", status: "ACTIVE", priority: "MEDIUM", urgency: "MEDIUM" });
     }
   }, [task, open, reset]);
 

@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { SomedayItem, SomedayStatus, TaskArea } from "@prisma/client";
+import { FutureItem, FutureStatus, TaskArea } from "@prisma/client";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
-import { createSomedayItem, updateSomedayItem } from "@/actions/future";
+import { createFutureItem, updateFutureItem } from "@/actions/future-items";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,36 +18,41 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
-import { AREA_LABELS, SOMEDAY_STATUS_LABELS } from "@/lib/utils";
-import { ROUGH_EFFORT_OPTIONS, TARGET_TIMEFRAME_OPTIONS } from "@/lib/planning";
-import { format } from "date-fns";
+import { AREA_LABELS, FUTURE_STATUS_LABELS } from "@/lib/utils";
+import { toLocalDateKey } from "@/lib/timezone";
 
 const schema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   category: z.nativeEnum(TaskArea).default("OTHER"),
-  roughEffort: z.string().optional(),
   targetTimeframe: z.string().optional(),
   reviewDate: z.string().optional(),
-  isImportant: z.boolean().default(false),
-  status: z.nativeEnum(SomedayStatus).default("SOMEDAY"),
+  status: z.nativeEnum(FutureStatus).default("FUTURE"),
 });
 
 type FormData = z.infer<typeof schema>;
 
 interface Props {
   open: boolean;
-  item: SomedayItem | null;
+  item: FutureItem | null;
   onClose: () => void;
-  onSaved: (item: SomedayItem) => void;
+  onSaved: (item: FutureItem) => void;
 }
+
+const TIMEFRAMES = ["Before semester", "Summer", "Fall", "Winter", "Later", "Someday"];
 
 export function FutureItemForm({ open, item, onClose, onSaved }: Props) {
   const { toast } = useToast();
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<FormData>({
     resolver: zodResolver(schema) as Resolver<FormData>,
   });
 
@@ -57,52 +62,48 @@ export function FutureItemForm({ open, item, onClose, onSaved }: Props) {
         title: item.title,
         description: item.description ?? "",
         category: item.category,
-        roughEffort: item.roughEffort ?? "",
         targetTimeframe: item.targetTimeframe ?? "",
-        reviewDate: item.reviewDate ? format(item.reviewDate, "yyyy-MM-dd") : "",
-        isImportant: item.isImportant,
+        reviewDate: item.reviewDate ? toLocalDateKey(item.reviewDate) : "",
         status: item.status,
       });
     } else {
       reset({
         title: "",
+        description: "",
         category: "OTHER",
-        roughEffort: "",
         targetTimeframe: "",
         reviewDate: "",
-        isImportant: false,
-        status: "SOMEDAY",
+        status: "FUTURE",
       });
     }
   }, [item, open, reset]);
-
-  const category = watch("category");
-  const status = watch("status");
-  const isImportant = watch("isImportant");
 
   async function onSubmit(data: FormData) {
     try {
       const payload = {
         ...data,
-        roughEffort: data.roughEffort || undefined,
         targetTimeframe: data.targetTimeframe || undefined,
         reviewDate: data.reviewDate || null,
       };
 
       const result = item
-        ? await updateSomedayItem(item.id, payload)
-        : await createSomedayItem(payload);
+        ? await updateFutureItem(item.id, payload)
+        : await createFutureItem(payload);
 
       toast({ title: item ? "Future item updated" : "Future item added" });
-      onSaved(result.item as SomedayItem);
+      onSaved(result.item as FutureItem);
     } catch (error) {
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Could not save future item.",
+        title: "Could not save future item",
+        description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
       });
     }
   }
+
+  const category = watch("category");
+  const status = watch("status");
+  const timeframe = watch("targetTimeframe");
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
@@ -120,16 +121,14 @@ export function FutureItemForm({ open, item, onClose, onSaved }: Props) {
 
           <div className="space-y-1.5">
             <Label>Notes</Label>
-            <Textarea rows={3} placeholder="Context, links, or why this matters later..." {...register("description")} />
+            <Textarea rows={3} placeholder="Why this matters, links, context..." {...register("description")} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Category</Label>
               <Select value={category} onValueChange={(value) => setValue("category", value as TaskArea)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(AREA_LABELS).map(([value, label]) => (
                     <SelectItem key={value} value={value}>{label}</SelectItem>
@@ -139,12 +138,10 @@ export function FutureItemForm({ open, item, onClose, onSaved }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select value={status} onValueChange={(value) => setValue("status", value as SomedayStatus)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+              <Select value={status} onValueChange={(value) => setValue("status", value as FutureStatus)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {Object.entries(SOMEDAY_STATUS_LABELS).map(([value, label]) => (
+                  {Object.entries(FUTURE_STATUS_LABELS).map(([value, label]) => (
                     <SelectItem key={value} value={value}>{label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -154,49 +151,20 @@ export function FutureItemForm({ open, item, onClose, onSaved }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Rough effort</Label>
-              <Select value={watch("roughEffort") || "none"} onValueChange={(value) => setValue("roughEffort", value === "none" ? "" : value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Optional" />
-                </SelectTrigger>
+              <Label>Target timeframe</Label>
+              <Select value={timeframe || "none"} onValueChange={(value) => setValue("targetTimeframe", value === "none" ? "" : value)}>
+                <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
-                  {ROUGH_EFFORT_OPTIONS.map((value) => (
+                  {TIMEFRAMES.map((value) => (
                     <SelectItem key={value} value={value}>{value}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Timeframe</Label>
-              <Select value={watch("targetTimeframe") || "none"} onValueChange={(value) => setValue("targetTimeframe", value === "none" ? "" : value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Optional" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {TARGET_TIMEFRAME_OPTIONS.map((value) => (
-                    <SelectItem key={value} value={value}>{value}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Review date</Label>
               <Input type="date" {...register("reviewDate")} />
-            </div>
-            <div className="flex items-center justify-between rounded-md border border-[var(--border)] px-3 py-3">
-              <div>
-                <p className="text-sm font-medium">Important</p>
-                <p className="text-xs text-[var(--muted-foreground)]">Keep this visible in review widgets</p>
-              </div>
-              <Switch
-                checked={isImportant}
-                onCheckedChange={(checked) => setValue("isImportant", checked)}
-              />
             </div>
           </div>
 

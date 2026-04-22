@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { generateRecurringTasksForUser } from "@/lib/recurring-tasks";
+import { generateRoutineTasksForUser } from "@/lib/routines";
 import { TasksClient } from "@/components/tasks/tasks-client";
 
 export default async function TasksPage() {
@@ -8,6 +9,7 @@ export default async function TasksPage() {
   const userId = session!.user!.id!;
 
   await generateRecurringTasksForUser(userId);
+  await generateRoutineTasksForUser(userId);
 
   const tasks = await prisma.task.findMany({
     where: { userId, status: { not: "ARCHIVED" } },

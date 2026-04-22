@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { SettingsClient } from "@/components/settings/settings-client";
 
@@ -30,9 +31,11 @@ export default async function SettingsPage() {
     }),
   ]);
 
+  if (!user) redirect("/login");
+
   return (
     <SettingsClient
-      user={user!}
+      user={user}
       googleCalendarConfigured={Boolean(
         process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       )}

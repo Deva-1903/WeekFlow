@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
+import { normalizePostgresUrlForPg } from "@/lib/postgres-url";
 
 // This app uses Prisma v7 driver adapters (required — datasource has no url in schema.prisma).
 // @prisma/adapter-pg wraps a pg.Pool and passes it to PrismaClient.
@@ -15,7 +16,7 @@ const globalForPrisma = globalThis as unknown as {
 
 function createPrismaClient() {
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: normalizePostgresUrlForPg(process.env.DATABASE_URL),
     // Keep the pool small for serverless — Neon's pgBouncer handles connection
     // multiplexing on its side, so a large Node-side pool buys nothing and
     // exhausts Neon's connection limits faster.

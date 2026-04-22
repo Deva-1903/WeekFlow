@@ -1,54 +1,59 @@
 # WeekFlow
 
-WeekFlow is a personal execution dashboard for a single power user first.
+WeekFlow is a focused personal execution system for one overloaded user. It is designed to reduce mental chaos across coursework, internship prep, interview prep, research, part-time work, health, life admin, social life, and random future intentions.
 
-The core model has five distinct lanes:
+The product is intentionally list-first:
 
-- Fixed commitments
-- Active tasks
-- This Week / Today
-- Future
-- Recurring task templates
+- Capture quickly into Inbox.
+- Separate real tasks from vague future items.
+- Keep flexible routines alive.
+- Choose tomorrow intentionally.
+- Journal / brain dump without losing thoughts.
 
-Imported calendar events are not tasks. Future items are not backlog. Recurring commitments generate calendar pressure; recurring task templates generate real tasks.
+WeekFlow is not a calendar sync platform, a Notion clone, or a generic productivity dashboard.
 
-## What's Included
+## V1 Modules
 
-| Area | Highlights |
+| Module | Purpose |
 | --- | --- |
-| Dashboard | Big rocks, review reminders, fixed commitments today, weekly load reality check |
-| Tasks | Manual tasks plus badges for recurring/promoted sources |
-| Weekly Review | Capacity math that subtracts fixed commitments before comparing task load |
-| Daily Planner | Big rocks from active work only |
-| Calendar | Manual blocks, imported synced events, recurring commitments, source filters, conflict visibility |
-| Future | Someday / future items with review dates, snooze, promote, archive, done |
-| Templates | Recurring commitments and recurring task templates |
-| Analytics | Fixed commitment hours, work vs commitments, future-item promotion/review trends, recurring task completion, calendar conflicts |
-| Settings | Capacity assumptions plus Calendar Connections and sync preferences |
+| Dashboard | Lightweight clarity: inbox count, today plan, overdue tasks, routines, future reviews, journal shortcut |
+| Inbox | Fast capture and processing into Task, Future, Journal, or discard |
+| Tasks | Actionable work only, separate from future ideas and fixed commitments |
+| Routines | Flexible recurring targets like gym 4x/week, DSA daily, ML prep, research sessions |
+| Future | Important-but-not-now items with review dates and promotion into tasks |
+| Daily Planner | Choose tomorrow's top priorities and smaller supports |
+| Journal | Reflection, memory capture, emotional clutter, and freeform brain dump |
+| Analytics | Lightweight execution signals: task completion, inbox processing, routines, tomorrow plans, overdue pressure, journal consistency |
+| Settings | Minimal profile, planning limits, timezone/capacity assumptions, optional calendar settings |
+
+Calendar, Weekly Review, Templates, and Health Log still exist as secondary surfaces so existing functionality is preserved, but they are no longer the product center.
+
+## Product Model
+
+The core V1 lanes are intentionally separate:
+
+- `InboxItem` is uncategorized capture.
+- `Task` is real actionable work.
+- `RecurringRoutine` and `RoutineSession` track flexible repeating commitments.
+- `FutureItem` stores important later items that should not clutter active work.
+- `JournalEntry` stores reflection and brain dumps.
+- `DailyPlan` and `DailyPlanItem` represent intentional tomorrow planning.
+
+Future review dates are reminders, not hard deadlines. Routines are often flexible targets, not fixed calendar events. Optional imported calendar events remain separate from task completion analytics.
 
 ## Stack
 
 - Next.js 16 App Router
 - TypeScript
 - Tailwind CSS v4
-- Prisma v7 + PostgreSQL
+- Prisma v7 + PostgreSQL / Neon
 - NextAuth v5
-- shadcn/ui
-- Recharts
-- date-fns
+- shadcn/ui-style primitives
+- Recharts for lightweight analytics
 - React Hook Form + Zod
+- date-fns + date-fns-tz
 
-## Product Notes
-
-- Backlog is not the week.
-- The week is not the day.
-- Fixed commitments are not tasks.
-- Future items are not active commitments.
-- Analytics separates task execution from imported schedule pressure.
-
----
-
-## Local Development Setup
+## Local Development
 
 ### 1. Install dependencies
 
@@ -58,27 +63,27 @@ npm install
 
 ### 2. Configure environment
 
+Copy the example file to both runtime locations:
+
 ```bash
 cp .env.example .env
 cp .env.example .env.local
 ```
 
-Both files are needed:
+Minimum local values:
 
-- `.env` — read by `prisma.config.ts` for migrations and seeding
-- `.env.local` — read by Next.js at runtime
-
-For local dev, you only need `DATABASE_URL`:
-
-```
+```env
 DATABASE_URL="postgresql://YOUR_USER@localhost:5432/weekflow"
-NEXTAUTH_SECRET="any-local-dev-string"
+DIRECT_URL=""
+NEXTAUTH_SECRET="any-local-dev-secret"
 NEXTAUTH_URL="http://localhost:3000"
 DEMO_USER_EMAIL="demo@weekflow.app"
 DEMO_USER_PASSWORD="weekflow2024"
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
 ```
 
-Leave `DIRECT_URL` blank locally — `prisma.config.ts` falls back to `DATABASE_URL` when `DIRECT_URL` is unset.
+`.env` is used by Prisma CLI. `.env.local` is used by Next.js at runtime.
 
 ### 3. Create the database
 
@@ -98,210 +103,69 @@ npm run db:migrate
 npm run db:seed
 ```
 
+The seed creates a realistic V1 demo: inbox clutter, active tasks, flexible routines, routine sessions, future items with review dates, journal entries, tomorrow plans, and a small optional calendar sample.
+
 ### 6. Start the app
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and use:
+Open [http://localhost:3000](http://localhost:3000) and sign in with:
 
 - Email: `demo@weekflow.app`
 - Password: `weekflow2024`
 
----
+## Environment Variables
 
-## Production Deployment — Vercel + Neon
+Required:
 
-### Step 1 — Create a Neon project
+- `DATABASE_URL`: application database connection string.
+- `NEXTAUTH_SECRET`: secret for NextAuth sessions.
+- `NEXTAUTH_URL`: canonical app URL.
 
-1. Go to [neon.tech](https://neon.tech) and create a project.
-2. Choose a region close to your Vercel deployment region.
-3. Neon creates a default `main` branch with a database named `neondb` (you can rename it or use as-is).
+Recommended for production:
 
-### Step 2 — Get your connection strings
+- `DIRECT_URL`: direct Neon/Postgres connection used for migrations.
+- `DEMO_USER_EMAIL`: seed/demo login email.
+- `DEMO_USER_PASSWORD`: seed/demo login password.
 
-In the Neon console, open your project → **Connection Details**.
+Optional:
 
-You need two strings:
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
 
-**Pooled connection (DATABASE_URL)**
-- Select "Pooled connection" — the host contains `-pooler` in the name.
-- Example: `postgresql://user:pass@ep-xxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require`
-- This is used for all application queries at runtime.
+Google Calendar is optional. If those variables are blank, WeekFlow still runs normally and Settings shows calendar sync as unavailable.
 
-**Direct connection (DIRECT_URL)**
-- Select "Direct connection" — the host does NOT contain `-pooler`.
-- Example: `postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require`
-- This is used only for Prisma migrations (`prisma migrate deploy`).
+For Neon, prefer `sslmode=verify-full` in Postgres URLs. If Neon gives you a URL ending in `sslmode=require`, the app normalizes that value at runtime before handing it to `pg` so Next dev does not show the SSL warning overlay.
 
-**Why two URLs?** Neon's pgBouncer runs in transaction mode. Prisma migrations use advisory locks which require a persistent session. The direct URL bypasses pgBouncer and gives Prisma a real session connection.
+## Optional Google Calendar Setup
 
-### Step 3 — Run migrations against Neon
+Calendar sync is preserved as a secondary feature. To enable it:
 
-From your local machine with both env vars set:
-
-```bash
-DIRECT_URL="postgresql://..." DATABASE_URL="postgresql://..." npm run db:deploy
-```
-
-Or add them temporarily to your `.env`, run `npm run db:deploy`, then remove.
-
-`db:deploy` runs `prisma migrate deploy` — applies only committed migration files without generating new ones. Never run `db:migrate` (migrate dev) against a production database.
-
-### Step 4 — Deploy to Vercel
-
-1. Push the repo to GitHub.
-2. Import the project in the Vercel dashboard.
-3. Set these **Environment Variables** in Vercel → Project → Settings → Environment Variables:
-
-| Variable | Value |
-| --- | --- |
-| `DATABASE_URL` | Neon pooled connection string |
-| `DIRECT_URL` | Neon direct connection string |
-| `NEXTAUTH_SECRET` | Output of `openssl rand -base64 32` |
-| `NEXTAUTH_URL` | `https://your-app.vercel.app` (no trailing slash) |
-| `DEMO_USER_EMAIL` | `demo@weekflow.app` |
-| `DEMO_USER_PASSWORD` | Your chosen password |
-| `GOOGLE_CLIENT_ID` | (optional) |
-| `GOOGLE_CLIENT_SECRET` | (optional) |
-
-4. Deploy. Vercel runs `npm install` → `postinstall` (`prisma generate`) → `next build` automatically.
-
-**Important:** Changing env vars in Vercel does not take effect until you redeploy. Trigger a manual redeploy after updating any env var.
-
-### Step 5 — Verify
-
-```
-GET https://your-app.vercel.app/api/health
-```
-
-Should return:
-
-```json
-{ "status": "ok", "db": "connected" }
-```
-
-If `db` is `"unreachable"`, the most common causes are:
-
-- `DATABASE_URL` is missing or has a typo in Vercel env vars
-- You used the direct URL instead of the pooled URL for `DATABASE_URL`
-- Migrations haven't been applied yet (`npm run db:deploy`)
-
-### Step 6 — Re-deploying after schema changes
-
-1. Create a migration locally: `npm run db:migrate`
-2. Commit the generated files in `prisma/migrations/`
-3. Run against Neon: `DIRECT_URL="..." npm run db:deploy`
-4. Push + redeploy on Vercel.
-
----
-
-## Prisma v7 Architecture Note
-
-This app uses **Prisma v7 with driver adapters** (`@prisma/adapter-pg`). This is why:
-
-- `prisma/schema.prisma` has `datasource db { provider = "postgresql" }` with no `url` field — Prisma v7 requires the URL to live in `prisma.config.ts` when using driver adapters.
-- `prisma.config.ts` controls CLI connections (migrations, studio). It uses `DIRECT_URL` for migrations.
-- `lib/prisma.ts` controls the runtime client. It uses `DATABASE_URL` (pooled) via `pg.Pool`.
-
-If you ever see a Prisma error about "url in datasource" (P1012), do not add `url` back to `schema.prisma` — that breaks the v7 driver adapter setup.
-
----
-
-## Google Calendar Integration
-
-WeekFlow supports optional Google Calendar import for fixed commitments.
-
-### Required Google setup
-
-1. Create OAuth credentials in Google Cloud.
-2. Add authorized redirect URIs:
+1. Create OAuth 2.0 credentials in Google Cloud.
+2. Add redirect URIs:
 
 ```text
-http://localhost:3000/api/calendar/google/callback        (dev)
-https://your-app.vercel.app/api/calendar/google/callback  (prod)
+http://localhost:3000/api/calendar/google/callback
+https://your-app.vercel.app/api/calendar/google/callback
 ```
 
-3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in Vercel env vars.
+3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
-### What the sync does
+Imported calendar events are modeled as external fixed commitments, not tasks.
 
-- Connects a Google account from Settings
-- Fetches available calendars
-- Stores calendar selection and capacity flags locally
-- Imports events as `ExternalEvent`
-- Expands basic recurring Google events via Google's `singleEvents=true` instances
-- Keeps imported events visually distinct from manual work blocks
-- Uses selected calendars in weekly capacity and conflict detection
+## Production Notes
 
----
+For Neon + Vercel:
 
-## Future: Background Worker
+- Use the pooled Neon URL for `DATABASE_URL`, preferably with `sslmode=verify-full`.
+- Use the direct Neon URL for `DIRECT_URL`, preferably with `sslmode=verify-full`.
+- Run production migrations with `npm run db:deploy`.
+- Do not run `npm run db:migrate` against production.
+- Changing Vercel environment variables requires a redeploy.
 
-Recurring task generation and calendar sync currently run on-demand. To schedule them, add a worker that calls `generateRecurringTasksForUser` and calendar sync for all users on a cron schedule. The worker needs only `DATABASE_URL` to connect to Neon.
-
----
-
-## New Data Model
-
-Prisma now includes:
-
-- `CalendarConnection`
-- `ExternalCalendar`
-- `ExternalEvent`
-- `RecurringCommitmentTemplate`
-- `RecurringTaskTemplate`
-- `SomedayItem`
-
-Task metadata now also tracks:
-
-- `sourceType`
-- `originRecurringTemplateId`
-- `promotedFromSomedayId`
-- `reviewDate`
-
-## Project Structure
-
-```text
-app/
-  (app)/
-    analytics/
-    calendar/
-    daily-planner/
-    dashboard/
-    future/
-    health/
-    settings/
-    tasks/
-    templates/
-    weekly-review/
-  api/
-    auth/
-    calendar/google/
-    health/
-actions/
-  calendar-sync.ts
-  future.ts
-  templates.ts
-  tasks.ts
-  time-blocks.ts
-  weekly-review.ts
-components/
-  calendar/
-  dashboard/
-  future/
-  settings/
-  tasks/
-  templates/
-lib/
-  calendar-sync.ts
-  commitments.ts
-  metrics.ts
-  planning.ts
-  prisma.ts
-  recurring-tasks.ts
-```
+Prisma v7 uses driver adapters in this app. Do not add a `url` field back to `datasource db` in `prisma/schema.prisma`; CLI connection configuration lives in `prisma.config.ts`, and runtime connection setup lives in `lib/prisma.ts`.
 
 ## Scripts
 
@@ -311,17 +175,12 @@ lib/
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
 | `npm run lint` | Run ESLint |
-| `npm run db:migrate` | Run Prisma migrate dev — local only |
-| `npm run db:deploy` | Apply migrations to production (use with DIRECT_URL) |
-| `npm run db:seed` | Seed demo data — blocked in production |
-| `npm run db:reset` | Reset database and reseed — dev only, destructive |
+| `npm run db:migrate` | Create/apply local migrations |
+| `npm run db:deploy` | Apply committed migrations in production |
+| `npm run db:seed` | Seed demo data |
+| `npm run db:reset` | Reset local DB and reseed |
 | `npm run db:studio` | Open Prisma Studio |
 
-## Notes
+## Date Handling
 
-- The app runs without Google credentials — Settings shows a graceful disabled state.
-- Recurring commitments are generated on the fly for the calendar and capacity engine.
-- Recurring task templates generate concrete tasks and avoid duplicates via a per-template period key.
-- Future-item review dates are reminders, not hard deadlines.
-- `postinstall` runs `prisma generate` so Vercel builds always have a fresh Prisma client.
-- The seed script refuses to run when `NODE_ENV=production`.
+WeekFlow uses `America/New_York` as the primary timezone. Date-only fields are stored as midnight in that timezone expressed as UTC. Use helpers in `lib/timezone.ts` for today, week boundaries, date parsing, review dates, due dates, routines, journal dates, and analytics buckets.

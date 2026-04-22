@@ -5,7 +5,7 @@ import { Plus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { createTask } from "@/actions/tasks";
+import { createInboxItem } from "@/actions/inbox";
 import { useToast } from "@/components/ui/use-toast";
 
 export function QuickAddTask() {
@@ -19,12 +19,12 @@ export function QuickAddTask() {
     if (!title.trim()) return;
     setLoading(true);
     try {
-      await createTask({ title: title.trim(), status: "BACKLOG" });
-      toast({ title: "Task added", description: title });
+      await createInboxItem({ title: title.trim() });
+      toast({ title: "Captured to inbox", description: title });
       setTitle("");
       setOpen(false);
     } catch {
-      toast({ title: "Error", description: "Could not add task.", variant: "destructive" });
+      toast({ title: "Error", description: "Could not capture item.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -35,22 +35,22 @@ export function QuickAddTask() {
       <DialogTrigger asChild>
         <Button size="sm" className="gap-1.5">
           <Plus className="h-4 w-4" />
-          Quick Add
+          Quick Capture
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Task to Backlog</DialogTitle>
+          <DialogTitle>Capture to Inbox</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex gap-2 mt-2">
           <Input
-            placeholder="Task title..."
+            placeholder="Anything on your mind..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             autoFocus
           />
           <Button type="submit" disabled={loading || !title.trim()}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Capture"}
           </Button>
         </form>
       </DialogContent>

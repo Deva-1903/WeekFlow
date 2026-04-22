@@ -1,30 +1,35 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { SomedayItem, TaskStatus } from "@prisma/client";
+import { FutureItem, TaskStatus } from "@prisma/client";
 import {
   Archive,
   ArrowUpRight,
   CalendarClock,
   CheckCircle2,
-  Clock3,
   Filter,
   Plus,
   Sparkles,
 } from "lucide-react";
-import { addDays, format, isBefore, isToday, startOfDay } from "date-fns";
-import { promoteSomedayItem, snoozeSomedayItem, updateSomedayStatus } from "@/actions/future";
+import { addDays, isBefore, isToday, startOfDay } from "date-fns";
+import {
+  clearFutureReviewDate,
+  promoteFutureItem,
+  snoozeFutureItem,
+  updateFutureStatus,
+} from "@/actions/future-items";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
-import { AREA_LABELS, SOMEDAY_STATUS_LABELS } from "@/lib/utils";
+import { AREA_LABELS, FUTURE_STATUS_LABELS, formatDateShort } from "@/lib/utils";
+import { toLocalDateKey } from "@/lib/timezone";
 import { FutureItemForm } from "./future-item-form";
 
-type FutureItemRecord = SomedayItem & {
-  generatedTask?: {
+type FutureItemRecord = FutureItem & {
+  promotedTask?: {
     id: string;
     title: string;
     status: TaskStatus;
@@ -41,7 +46,6 @@ export function FutureClient({ initialItems }: Props) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("open");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [timeframeFilter, setTimeframeFilter] = useState("all");
   const [reviewFilter, setReviewFilter] = useState("all");
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<FutureItemRecord | null>(null);
@@ -53,74 +57,47 @@ export function FutureClient({ initialItems }: Props) {
         if (!haystack.includes(search.toLowerCase())) return false;
       }
 
-      if (statusFilter === "open" && !["SOMEDAY", "ACTIVE"].includes(item.status)) {
-        return false;
-      }
-      if (statusFilter !== "all" && statusFilter !== "open" && item.status !== statusFilter) {
-        return false;
-      }
-
-      if (categoryFilter !== "all" && item.category !== categoryFilter) {
-        return false;
-      }
-
-      if (timeframeFilter !== "all" && (item.targetTimeframe ?? "none") !== timeframeFilter) {
-        return false;
-      }
+      if (statusFilter === "open" && !["FUTURE", "ACTIVE"].includes(item.status)) return false;
+      if (statusFilter !== "open" && statusFilter !== "all" && item.status !== statusFilter) return false;
+      if (categoryFilter !== "all" && item.category !== categoryFilter) return false;
 
       const reviewDate = item.reviewDate ? startOfDay(item.reviewDate) : null;
-      if (reviewFilter === "due" && (!reviewDate || isBefore(new Date(), reviewDate))) {
-        return false;
-      }
-      if (reviewFilter === "overdue" && (!reviewDate || !isBefore(reviewDate, startOfDay(new Date())) || isToday(reviewDate))) {
-        return false;
-      }
-      if (reviewFilter === "none" && reviewDate) {
-        return false;
-      }
+      if (reviewFilter === "due" && (!reviewDate || isBefore(new Date(), reviewDate))) return false;
+      if (reviewFilter === "overdue" && (!reviewDate || !isBefore(reviewDate, startOfDay(new Date())) || isToday(reviewDate))) return false;
+      if (reviewFilter === "none" && reviewDate) return false;
 
       return true;
     });
-  }, [categoryFilter, items, reviewFilter, search, statusFilter, timeframeFilter]);
+  }, [categoryFilter, items, reviewFilter, search, statusFilter]);
 
   const stats = {
-    total: items.filter((item) => item.status !== "ARCHIVED").length,
-    needsReview: items.filter((item) => item.reviewDate && (isToday(item.reviewDate) || isBefore(item.reviewDate, startOfDay(new Date())))).length,
-    important: items.filter((item) => item.isImportant && ["SOMEDAY", "ACTIVE"].includes(item.status)).length,
+    open: items.filter((item) => ["FUTURE", "ACTIVE"].includes(item.status)).length,
+    review: items.filter((item) => item.reviewDate && (isToday(item.reviewDate) || isBefore(item.reviewDate, startOfDay(new Date())))).length,
     promoted: items.filter((item) => item.status === "ACTIVE").length,
+    done: items.filter((item) => item.status === "DONE").length,
   };
 
   function upsertItem(nextItem: FutureItemRecord) {
     setItems((current) => {
       const index = current.findIndex((item) => item.id === nextItem.id);
       if (index === -1) return [nextItem, ...current];
-      const updated = [...current];
-      updated[index] = nextItem;
-      return updated;
+      const next = [...current];
+      next[index] = { ...next[index], ...nextItem };
+      return next;
     });
     setEditItem(null);
     setShowForm(false);
   }
 
-  async function handlePromote(item: FutureItemRecord, nextStatus: TaskStatus) {
+  async function handlePromote(item: FutureItemRecord, status: TaskStatus) {
     try {
-      const result = await promoteSomedayItem(item.id, nextStatus);
-      setItems((current) =>
-        current.map((entry) =>
-          entry.id === item.id
-            ? {
-                ...entry,
-                status: "ACTIVE",
-                promotedAt: new Date(),
-                convertedTaskId: result.task.id,
-                generatedTask: result.task,
-              }
-            : entry
-        )
-      );
-      toast({
-        title: nextStatus === "THIS_WEEK" ? "Promoted into This Week" : "Promoted into Tasks",
-      });
+      const result = await promoteFutureItem(item.id, status);
+      upsertItem({
+        ...item,
+        ...result.item,
+        promotedTask: result.task,
+      } as FutureItemRecord);
+      toast({ title: status === "TOMORROW" ? "Promoted to tomorrow" : "Promoted to active tasks" });
     } catch (error) {
       toast({
         title: "Could not promote item",
@@ -130,11 +107,11 @@ export function FutureClient({ initialItems }: Props) {
     }
   }
 
-  async function handleStatusChange(item: FutureItemRecord, nextStatus: FutureItemRecord["status"]) {
+  async function handleStatus(item: FutureItemRecord, status: FutureItemRecord["status"]) {
     try {
-      const result = await updateSomedayStatus(item.id, nextStatus);
+      const result = await updateFutureStatus(item.id, status);
       upsertItem(result.item as FutureItemRecord);
-      toast({ title: `Marked as ${SOMEDAY_STATUS_LABELS[nextStatus].toLowerCase()}` });
+      toast({ title: `Marked ${FUTURE_STATUS_LABELS[status].toLowerCase()}` });
     } catch (error) {
       toast({
         title: "Could not update item",
@@ -145,15 +122,28 @@ export function FutureClient({ initialItems }: Props) {
   }
 
   async function handleSnooze(item: FutureItemRecord) {
-    const nextReviewDate = format(addDays(startOfDay(new Date()), 7), "yyyy-MM-dd");
-
+    const nextReviewDate = toLocalDateKey(addDays(new Date(), 7));
     try {
-      const result = await snoozeSomedayItem(item.id, nextReviewDate);
+      const result = await snoozeFutureItem(item.id, nextReviewDate);
       upsertItem(result.item as FutureItemRecord);
-      toast({ title: "Review date moved out by one week" });
+      toast({ title: "Review moved out one week" });
     } catch (error) {
       toast({
-        title: "Could not snooze review",
+        title: "Could not snooze item",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleReviewed(item: FutureItemRecord) {
+    try {
+      const result = await clearFutureReviewDate(item.id);
+      upsertItem(result.item as FutureItemRecord);
+      toast({ title: "Review cleared" });
+    } catch (error) {
+      toast({
+        title: "Could not clear review",
         description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
       });
@@ -166,7 +156,7 @@ export function FutureClient({ initialItems }: Props) {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Future</h1>
           <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-            Important later items that should not pollute the active backlog.
+            Important, not-now items. Review dates are reminders, not deadlines.
           </p>
         </div>
         <Button size="sm" onClick={() => { setEditItem(null); setShowForm(true); }}>
@@ -177,18 +167,16 @@ export function FutureClient({ initialItems }: Props) {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Open future items", value: stats.total, icon: Sparkles, color: "#6366f1" },
-          { label: "Needs review", value: stats.needsReview, icon: CalendarClock, color: "#f59e0b" },
-          { label: "Important", value: stats.important, icon: Clock3, color: "#ef4444" },
+          { label: "Open", value: stats.open, icon: Sparkles, color: "#6366f1" },
+          { label: "Needs review", value: stats.review, icon: CalendarClock, color: "#f59e0b" },
           { label: "Promoted", value: stats.promoted, icon: ArrowUpRight, color: "#10b981" },
+          { label: "Done later", value: stats.done, icon: CheckCircle2, color: "#64748b" },
         ].map((card) => {
           const Icon = card.icon;
           return (
             <Card key={card.label}>
               <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <Icon className="h-4 w-4" style={{ color: card.color }} />
-                </div>
+                <Icon className="h-4 w-4 mb-2" style={{ color: card.color }} />
                 <div className="text-2xl font-bold" style={{ color: card.color }}>{card.value}</div>
                 <div className="text-xs text-[var(--muted-foreground)] mt-0.5">{card.label}</div>
               </CardContent>
@@ -197,32 +185,23 @@ export function FutureClient({ initialItems }: Props) {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr,1fr,1fr,1fr,1fr] gap-3">
-        <div className="relative lg:col-span-2">
-          <Filter className="absolute left-3 top-3.5 h-4 w-4 text-[var(--muted-foreground)]" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="pl-9"
-            placeholder="Search future items..."
-          />
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_180px_180px] gap-3">
+        <div className="relative">
+          <Filter className="absolute left-3 top-3 h-4 w-4 text-[var(--muted-foreground)]" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-9" placeholder="Search future items..." />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger>
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
+          <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="open">Open</SelectItem>
             <SelectItem value="all">All statuses</SelectItem>
-            {Object.entries(SOMEDAY_STATUS_LABELS).map(([value, label]) => (
+            {Object.entries(FUTURE_STATUS_LABELS).map(([value, label]) => (
               <SelectItem key={value} value={value}>{label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger>
-            <SelectValue placeholder="Category" />
-          </SelectTrigger>
+          <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All categories</SelectItem>
             {Object.entries(AREA_LABELS).map(([value, label]) => (
@@ -230,25 +209,11 @@ export function FutureClient({ initialItems }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Select value={timeframeFilter} onValueChange={setTimeframeFilter}>
-          <SelectTrigger>
-            <SelectValue placeholder="Timeframe" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Any timeframe</SelectItem>
-            <SelectItem value="none">No timeframe</SelectItem>
-            {["Before semester", "Summer", "Fall", "Winter", "Later"].map((value) => (
-              <SelectItem key={value} value={value}>{value}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Select value={reviewFilter} onValueChange={setReviewFilter}>
-          <SelectTrigger>
-            <SelectValue placeholder="Review state" />
-          </SelectTrigger>
+          <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Any review state</SelectItem>
-            <SelectItem value="due">Due today or soon</SelectItem>
+            <SelectItem value="all">Any review</SelectItem>
+            <SelectItem value="due">Due now</SelectItem>
             <SelectItem value="overdue">Overdue</SelectItem>
             <SelectItem value="none">No review date</SelectItem>
           </SelectContent>
@@ -257,49 +222,30 @@ export function FutureClient({ initialItems }: Props) {
 
       {filteredItems.length === 0 ? (
         <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-sm text-[var(--muted-foreground)]">
-              No future items match these filters.
-            </p>
+          <CardContent className="py-16 text-center text-sm text-[var(--muted-foreground)]">
+            No future items match these filters.
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {filteredItems.map((item) => {
             const reviewDate = item.reviewDate ? startOfDay(item.reviewDate) : null;
-            const isReviewOverdue = Boolean(reviewDate && isBefore(reviewDate, startOfDay(new Date())) && !isToday(reviewDate));
-            const isReviewToday = Boolean(reviewDate && isToday(reviewDate));
+            const reviewOverdue = Boolean(reviewDate && isBefore(reviewDate, startOfDay(new Date())) && !isToday(reviewDate));
+            const reviewToday = Boolean(reviewDate && isToday(reviewDate));
 
             return (
-              <Card key={item.id} className="border-[var(--border)]/80">
+              <Card key={item.id}>
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <CardTitle className="text-base">{item.title}</CardTitle>
-                        {item.isImportant && (
-                          <Badge variant="destructive" className="text-[10px]">important</Badge>
-                        )}
-                        <Badge variant="outline" className="text-[10px]">
-                          {SOMEDAY_STATUS_LABELS[item.status]}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
+                    <div>
+                      <CardTitle className="text-base">{item.title}</CardTitle>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
                         <Badge variant="secondary" className="text-[10px]">{AREA_LABELS[item.category]}</Badge>
-                        {item.targetTimeframe && (
-                          <Badge variant="outline" className="text-[10px]">{item.targetTimeframe}</Badge>
-                        )}
-                        {item.roughEffort && (
-                          <Badge variant="outline" className="text-[10px]">{item.roughEffort}</Badge>
-                        )}
-                        {item.generatedTask && (
-                          <Badge className="text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
-                            linked task
-                          </Badge>
-                        )}
+                        <Badge variant="outline" className="text-[10px]">{FUTURE_STATUS_LABELS[item.status]}</Badge>
+                        {item.targetTimeframe && <Badge variant="outline" className="text-[10px]">{item.targetTimeframe}</Badge>}
+                        {item.promotedTask && <Badge variant="success" className="text-[10px]">linked task</Badge>}
                       </div>
                     </div>
-
                     <Button variant="ghost" size="sm" onClick={() => { setEditItem(item); setShowForm(true); }}>
                       Edit
                     </Button>
@@ -307,38 +253,41 @@ export function FutureClient({ initialItems }: Props) {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {item.description && (
-                    <p className="text-sm text-[var(--muted-foreground)] leading-relaxed">
-                      {item.description}
-                    </p>
+                    <p className="text-sm text-[var(--muted-foreground)] leading-relaxed">{item.description}</p>
                   )}
 
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                    <span>Created {format(item.createdAt, "MMM d, yyyy")}</span>
+                  <div className="flex flex-wrap gap-2 text-xs text-[var(--muted-foreground)]">
+                    <span>Created {formatDateShort(item.createdAt)}</span>
                     {reviewDate && (
-                      <span className={isReviewOverdue ? "text-red-500 font-medium" : isReviewToday ? "text-amber-600 font-medium" : ""}>
-                        Review {format(reviewDate, "MMM d, yyyy")}
+                      <span className={reviewOverdue ? "text-red-500 font-medium" : reviewToday ? "text-amber-600 font-medium" : ""}>
+                        Review {formatDateShort(reviewDate)}
                       </span>
                     )}
-                    {!reviewDate && <span>No review date</span>}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" onClick={() => handlePromote(item, "BACKLOG")}>
-                      Promote to backlog
+                    <Button size="sm" onClick={() => handlePromote(item, "ACTIVE")}>
+                      <ArrowUpRight className="h-4 w-4" />
+                      Active Task
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => handlePromote(item, "THIS_WEEK")}>
-                      Promote to this week
+                    <Button size="sm" variant="outline" onClick={() => handlePromote(item, "TOMORROW")}>
+                      Tomorrow
                     </Button>
-                    {(isReviewToday || isReviewOverdue) && (
-                      <Button size="sm" variant="ghost" onClick={() => handleSnooze(item)}>
-                        Snooze 7 days
-                      </Button>
+                    {reviewDate && (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => handleReviewed(item)}>
+                          Reviewed
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleSnooze(item)}>
+                          Snooze
+                        </Button>
+                      </>
                     )}
-                    <Button size="sm" variant="ghost" onClick={() => handleStatusChange(item, "DONE")}>
+                    <Button size="sm" variant="ghost" onClick={() => handleStatus(item, "DONE")}>
                       <CheckCircle2 className="h-4 w-4" />
                       Done
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => handleStatusChange(item, "ARCHIVED")}>
+                    <Button size="sm" variant="ghost" onClick={() => handleStatus(item, "ARCHIVED")}>
                       <Archive className="h-4 w-4" />
                       Archive
                     </Button>
@@ -354,7 +303,7 @@ export function FutureClient({ initialItems }: Props) {
         open={showForm}
         item={editItem}
         onClose={() => { setShowForm(false); setEditItem(null); }}
-        onSaved={(item) => upsertItem(item as FutureItemRecord)}
+        onSaved={upsertItem}
       />
     </div>
   );

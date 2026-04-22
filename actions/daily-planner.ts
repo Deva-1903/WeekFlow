@@ -3,7 +3,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { startOfDay } from "date-fns";
+import { startOfDayTZ, toLocalDateKey, todayTZ } from "@/lib/timezone";
 
 async function getUser() {
   const session = await auth();
@@ -13,7 +13,7 @@ async function getUser() {
 
 export async function getOrCreateDailyPlan(date: Date) {
   const userId = await getUser();
-  const d = startOfDay(date);
+  const d = startOfDayTZ(date);
 
   return prisma.dailyPlan.upsert({
     where: { userId_date: { userId, date: d } },
@@ -30,10 +30,15 @@ export async function getOrCreateDailyPlan(date: Date) {
 
 export async function saveDailyPlan(
   date: Date,
-  data: { notes?: string; taskIds?: string[] }
+  data: {
+    notes?: string;
+    taskIds?: string[];
+    items?: { taskId: string; isTopPriority?: boolean }[];
+  }
 ) {
   const userId = await getUser();
-  const d = startOfDay(date);
+  const d = startOfDayTZ(date);
+  const isTomorrowPlan = toLocalDateKey(d) !== toLocalDateKey(todayTZ());
 
   const plan = await prisma.dailyPlan.upsert({
     where: { userId_date: { userId, date: d } },
@@ -41,24 +46,38 @@ export async function saveDailyPlan(
     update: { notes: data.notes },
   });
 
-  if (data.taskIds !== undefined) {
+  const newItems = data.items ?? data.taskIds?.map((taskId, index) => ({
+    taskId,
+    isTopPriority: index < 3,
+  }));
+
+  if (newItems !== undefined) {
+    const taskIds = newItems.map((item) => item.taskId);
+    await prisma.dailyPlanItem.deleteMany({ where: { dailyPlanId: plan.id } });
     await prisma.dailyBigRock.deleteMany({ where: { dailyPlanId: plan.id } });
-    if (data.taskIds.length > 0) {
+    if (newItems.length > 0) {
+      await prisma.dailyPlanItem.createMany({
+        data: newItems.map((item, i) => ({
+          dailyPlanId: plan.id,
+          taskId: item.taskId,
+          order: i,
+          isTopPriority: Boolean(item.isTopPriority),
+        })),
+      });
       await prisma.dailyBigRock.createMany({
-        data: data.taskIds.map((taskId, i) => ({
+        data: taskIds.slice(0, 3).map((taskId, i) => ({
           dailyPlanId: plan.id,
           taskId,
           order: i,
         })),
       });
-      // Move tasks to TODAY
       await prisma.task.updateMany({
         where: {
-          id: { in: data.taskIds },
+          id: { in: taskIds },
           userId,
-          status: { in: ["BACKLOG", "THIS_WEEK"] },
+          status: { in: ["BACKLOG", "ACTIVE", "THIS_WEEK", "TODAY"] },
         },
-        data: { status: "TODAY" },
+        data: { status: isTomorrowPlan ? "TOMORROW" : "TODAY" },
       });
     }
   }
@@ -87,5 +106,35 @@ export async function completeBigRock(bigRockId: string) {
 
   revalidatePath("/daily-planner");
   revalidatePath("/dashboard");
+  return { success: true, completed: updated.completed };
+}
+
+export async function completeDailyPlanItem(itemId: string) {
+  const userId = await getUser();
+
+  const item = await prisma.dailyPlanItem.findFirst({
+    where: { id: itemId, dailyPlan: { userId } },
+    include: { task: true },
+  });
+  if (!item) throw new Error("Not found");
+
+  const completed = !item.completed;
+  const updated = await prisma.dailyPlanItem.update({
+    where: { id: itemId },
+    data: { completed, completedAt: completed ? new Date() : null },
+  });
+
+  await prisma.task.update({
+    where: { id: item.taskId },
+    data: {
+      status: completed ? "DONE" : "TOMORROW",
+      completedAt: completed ? new Date() : null,
+    },
+  });
+
+  revalidatePath("/daily-planner");
+  revalidatePath("/dashboard");
+  revalidatePath("/tasks");
+  revalidatePath("/analytics");
   return { success: true, completed: updated.completed };
 }
